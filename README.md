@@ -12,6 +12,7 @@ npm run dev
 Open `http://127.0.0.1:5173`.
 
 Run the TypeScript checker with `npm run typecheck`.
+Run strict ESLint checks with `npm run lint`.
 
 ## Backend
 

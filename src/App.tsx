@@ -6,7 +6,11 @@ import CandidateResults from "./components/screening/CandidateResults";
 import JobDescriptionInput from "./components/screening/JobDescriptionInput";
 import ResumeUploader from "./components/screening/ResumeUploader";
 import ScreeningSummary from "./components/screening/ScreeningSummary";
-import { SCREENING_STORAGE_KEY, MAX_FILE_SIZE_BYTES, JOB_DESCRIPTION_EXTENSIONS } from "./constants/screening";
+import {
+  SCREENING_STORAGE_KEY,
+  MAX_FILE_SIZE_BYTES,
+  JOB_DESCRIPTION_EXTENSIONS,
+} from "./constants/screening";
 import {
   createScreening,
   deleteResumes,
@@ -103,7 +107,9 @@ export default function App() {
         if (error instanceof ApiError && error.status === 404)
           window.localStorage.removeItem(SCREENING_STORAGE_KEY);
         else
-          setPageError(getErrorMessage(error, "Could not load the saved screening."));
+          setPageError(
+            getErrorMessage(error, "Could not load the saved screening."),
+          );
       } finally {
         if (mounted) setLoading(false);
       }
@@ -189,7 +195,12 @@ export default function App() {
         "Screening is ready. Your files are available in the workspace.",
       );
     } catch (error: unknown) {
-      setPageError(getErrorMessage(error, "Could not save the screening. Check your files and try again."));
+      setPageError(
+        getErrorMessage(
+          error,
+          "Could not save the screening. Check your files and try again.",
+        ),
+      );
     } finally {
       setSaving(false);
     }
@@ -224,7 +235,12 @@ export default function App() {
           : `${targets.length} resumes removed.`,
       );
     } catch (error: unknown) {
-      setPageError(getErrorMessage(error, "Could not remove the selected resumes. Try again."));
+      setPageError(
+        getErrorMessage(
+          error,
+          "Could not remove the selected resumes. Try again.",
+        ),
+      );
     } finally {
       setDeleting(false);
     }
@@ -244,10 +260,7 @@ export default function App() {
     setUploadError("");
   };
 
-  const saveDisabled =
-    loading ||
-    saving ||
-    Boolean(screeningId);
+  const saveDisabled = loading || saving || Boolean(screeningId);
 
   return (
     <div className="app-shell">
