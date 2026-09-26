@@ -1,5 +1,10 @@
 import { Button, Card, Input, Typography, Upload } from 'antd';
-import { API_URL, JOB_DESCRIPTION_EXTENSIONS, MAX_JOB_DESCRIPTION_CHARS, MIN_JOB_DESCRIPTION_WORDS } from '../../constants/screening';
+import {
+  API_URL,
+  JOB_DESCRIPTION_EXTENSIONS,
+  MAX_JOB_DESCRIPTION_CHARS,
+  MIN_JOB_DESCRIPTION_WORDS,
+} from '../../constants/screening';
 import { getWordCount } from '../../utils/screeningValidation';
 import type { UploadProps } from 'antd';
 import type { JobDescriptionFile } from '../../types/screening';
@@ -45,19 +50,33 @@ export default function JobDescriptionInput({
         disabled={disabled}
         beforeUpload={onFile}
       >
-        <Button className="job-upload-button">{jobFile ? 'Replace job description' : 'Upload a file'}</Button>
+        <Button className="job-upload-button">
+          {jobFile ? 'Replace job description' : 'Upload a file'}
+        </Button>
       </Upload>
       {jobFile && (
         <div className="job-file-row">
           <span className="file-type">{jobFile.name.split('.').pop()?.toUpperCase()}</span>
-          <span className="job-file-name" title={jobFile.name}>{jobFile.name}</span>
+          <span className="job-file-name" title={jobFile.name}>
+            {jobFile.name}
+          </span>
           {!(jobFile instanceof File) && screeningId && (
-            <a href={`${API_URL}/api/screenings/${encodeURIComponent(screeningId)}/job-description`}>Download</a>
+            <a
+              href={`${API_URL}/api/screenings/${encodeURIComponent(screeningId)}/job-description`}
+            >
+              Download
+            </a>
           )}
-          {!disabled && <Button type="text" size="small" onClick={onRemoveFile}>Remove</Button>}
+          {!disabled && (
+            <Button type="text" size="small" onClick={onRemoveFile}>
+              Remove
+            </Button>
+          )}
         </div>
       )}
-      <div className="or-divider"><span>OR PASTE DESCRIPTION</span></div>
+      <div className="or-divider">
+        <span>OR PASTE DESCRIPTION</span>
+      </div>
       <Input.TextArea
         value={jobText}
         onChange={(event) => onTextChange(event.target.value)}
@@ -71,9 +90,10 @@ export default function JobDescriptionInput({
       />
       <div className="job-description-meta">
         <Text type={error || textIsShort ? 'danger' : 'secondary'}>
-          {error || (textIsShort
-            ? `Add ${MIN_JOB_DESCRIPTION_WORDS - wordCount} more words to reach the ${MIN_JOB_DESCRIPTION_WORDS}-word minimum.`
-            : `Minimum ${MIN_JOB_DESCRIPTION_WORDS} words${jobText.trim() ? ` · ${wordCount} entered` : ''}.`)}
+          {error ||
+            (textIsShort
+              ? `Add ${MIN_JOB_DESCRIPTION_WORDS - wordCount} more words to reach the ${MIN_JOB_DESCRIPTION_WORDS}-word minimum.`
+              : `Minimum ${MIN_JOB_DESCRIPTION_WORDS} words${jobText.trim() ? ` · ${wordCount} entered` : ''}.`)}
         </Text>
         <Text type="secondary">Avoid unnecessary personal information.</Text>
       </div>

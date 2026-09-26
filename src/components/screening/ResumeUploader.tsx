@@ -12,7 +12,11 @@ interface ResumeUploaderProps {
   resumeCount: number;
 }
 
-export default function ResumeUploader({ disabled, onBeforeUpload, resumeCount }: ResumeUploaderProps) {
+export default function ResumeUploader({
+  disabled,
+  onBeforeUpload,
+  resumeCount,
+}: ResumeUploaderProps) {
   return (
     <Card className="section-card intake-card" bordered={false}>
       <div className="section-heading">
@@ -30,11 +34,20 @@ export default function ResumeUploader({ disabled, onBeforeUpload, resumeCount }
         disabled={disabled}
         beforeUpload={onBeforeUpload}
       >
-        <div className="upload-symbol" aria-hidden="true">↑</div>
-        <Paragraph className="drop-title"><strong>Choose resume files</strong> or drag them here</Paragraph>
-        <Text type="secondary">PDF, DOC, or DOCX · Up to {formatFileSize(MAX_FILE_SIZE_BYTES)} each · {resumeCount} added</Text>
+        <div className="upload-symbol" aria-hidden="true">
+          ↑
+        </div>
+        <Paragraph className="drop-title">
+          <strong>Choose resume files</strong> or drag them here
+        </Paragraph>
+        <Text type="secondary">
+          PDF, DOC, or DOCX · Up to {formatFileSize(MAX_FILE_SIZE_BYTES)} each · {resumeCount} added
+        </Text>
       </Dragger>
-      <div className="privacy-note"><span className="privacy-dot" /> Files are sent to the workspace when you save this screening.</div>
+      <div className="privacy-note">
+        <span className="privacy-dot" /> Files are sent to the workspace when you save this
+        screening.
+      </div>
     </Card>
   );
 }

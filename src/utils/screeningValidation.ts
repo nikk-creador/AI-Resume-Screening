@@ -25,20 +25,24 @@ export function validateFile(
     return `${file.name}: choose a supported ${label.toLowerCase()} file (${allowedExtensions.join(', ').toUpperCase()}).`;
   }
   if (file.size === 0) return `${file.name}: this file is empty.`;
-  if (file.size !== undefined && file.size > MAX_FILE_SIZE_BYTES) return `${file.name}: the maximum file size is 10 MB.`;
+  if (file.size !== undefined && file.size > MAX_FILE_SIZE_BYTES)
+    return `${file.name}: the maximum file size is 10 MB.`;
   return '';
 }
 
 export function validateResume(file: File, existingResumes: ResumeRow[] = []): string {
   const fileError = validateFile(file, RESUME_EXTENSIONS, 'Resume');
   if (fileError) return fileError;
-  const duplicate = existingResumes.some((resume) =>
-    resume.name.toLowerCase() === file.name.toLowerCase() && resume.size === file.size,
+  const duplicate = existingResumes.some(
+    (resume) => resume.name.toLowerCase() === file.name.toLowerCase() && resume.size === file.size,
   );
   return duplicate ? `${file.name} is already in this screening.` : '';
 }
 
-export function validateJobDescription(jobText: string, jobFile: File | { name: string; stored: true } | null): string {
+export function validateJobDescription(
+  jobText: string,
+  jobFile: File | { name: string; stored: true } | null,
+): string {
   const text = jobText.trim();
   if (!text && !jobFile) return 'Add a job description to continue.';
   if (text.length > MAX_JOB_DESCRIPTION_CHARS) {
@@ -52,7 +56,12 @@ export function validateJobDescription(jobText: string, jobFile: File | { name: 
 }
 
 export function displayName(filename = ''): string {
-  return filename.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ').trim() || filename;
+  return (
+    filename
+      .replace(/\.[^.]+$/, '')
+      .replace(/[_-]+/g, ' ')
+      .trim() || filename
+  );
 }
 
 export function formatFileSize(size = 0): string {
@@ -64,5 +73,7 @@ export function formatLocalDateTime(value: string | null | undefined): string {
   if (!value) return 'Pending upload';
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return 'Time unavailable';
-  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(date);
+  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(
+    date,
+  );
 }

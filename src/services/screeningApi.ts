@@ -2,7 +2,10 @@ import { API_URL } from '../constants/screening';
 import type { ScreeningApiRecord, ScreeningCreateInput } from '../types/screening';
 
 export class ApiError extends Error {
-  constructor(message: string, public readonly status: number) {
+  constructor(
+    message: string,
+    public readonly status: number,
+  ) {
     super(message);
     this.name = 'ApiError';
   }
@@ -42,7 +45,10 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
       : typeof payload.detail === 'string'
         ? payload.detail
         : undefined;
-    throw new ApiError(detail || `Request failed (${response.status}). Try again.`, response.status);
+    throw new ApiError(
+      detail || `Request failed (${response.status}). Try again.`,
+      response.status,
+    );
   }
   return data as T;
 }
@@ -51,7 +57,10 @@ export function getErrorMessage(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
 }
 
-async function graphQLRequest<T>(query: string, variables: Record<string, string | string[]>): Promise<T> {
+async function graphQLRequest<T>(
+  query: string,
+  variables: Record<string, string | string[]>,
+): Promise<T> {
   let response: Response;
   try {
     response = await fetch(`${API_URL}/graphql`, {
@@ -60,13 +69,17 @@ async function graphQLRequest<T>(query: string, variables: Record<string, string
       body: JSON.stringify({ query, variables }),
     });
   } catch {
-    throw new ApiError("Can't reach the GraphQL API. Check that the backend is running and try again.", 0);
+    throw new ApiError(
+      "Can't reach the GraphQL API. Check that the backend is running and try again.",
+      0,
+    );
   }
 
   const result = (await response.json().catch(() => ({}))) as GraphQLResponse<T>;
   if (!response.ok || result.errors?.length || !result.data) {
     throw new ApiError(
-      result.errors?.map((error) => error.message).join(' ') || `GraphQL request failed (${response.status}).`,
+      result.errors?.map((error) => error.message).join(' ') ||
+        `GraphQL request failed (${response.status}).`,
       response.status,
     );
   }

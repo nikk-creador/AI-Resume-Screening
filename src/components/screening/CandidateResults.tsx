@@ -44,7 +44,9 @@ export default function CandidateResults({
   isSaved,
 }: CandidateResultsProps) {
   const rows = resumes
-    .filter((resume) => !query.trim() || resume.name.toLowerCase().includes(query.trim().toLowerCase()))
+    .filter(
+      (resume) => !query.trim() || resume.name.toLowerCase().includes(query.trim().toLowerCase()),
+    )
     .map((resume) => ({ ...resume, candidate: displayName(resume.name) }));
 
   const columns: ColumnsType<CandidateRow> = [
@@ -55,10 +57,14 @@ export default function CandidateResults({
       sorter: (a, b) => a.candidate.localeCompare(b.candidate),
       render: (name, resume) => (
         <div className="candidate-cell">
-          <span className="candidate-avatar" aria-hidden="true">{name.slice(0, 1).toUpperCase()}</span>
+          <span className="candidate-avatar" aria-hidden="true">
+            {name.slice(0, 1).toUpperCase()}
+          </span>
           <span className="candidate-details">
             <Text strong>{name}</Text>
-            <Text type="secondary" className="candidate-file">{resume.name} · {formatFileSize(resume.size)}</Text>
+            <Text type="secondary" className="candidate-file">
+              {resume.name} · {formatFileSize(resume.size)}
+            </Text>
           </span>
         </div>
       ),
@@ -84,7 +90,9 @@ export default function CandidateResults({
       title: 'STATUS',
       key: 'status',
       width: 135,
-      render: (_, resume) => <Tag className="status-tag">{resume.id ? 'In workspace' : 'Ready to save'}</Tag>,
+      render: (_, resume) => (
+        <Tag className="status-tag">{resume.id ? 'In workspace' : 'Ready to save'}</Tag>
+      ),
     },
     {
       title: 'ACTIONS',
@@ -93,8 +101,14 @@ export default function CandidateResults({
       align: 'right',
       render: (_, resume) => (
         <div className="row-actions">
-          {resume.id && <a href={`${API_URL}/api/resumes/${encodeURIComponent(resume.id)}/download`}>Download</a>}
-          <Button type="text" danger disabled={deleting} onClick={() => onDeleteOne(resume.key)}>Remove</Button>
+          {resume.id && (
+            <a href={`${API_URL}/api/resumes/${encodeURIComponent(resume.id)}/download`}>
+              Download
+            </a>
+          )}
+          <Button type="text" danger disabled={deleting} onClick={() => onDeleteOne(resume.key)}>
+            Remove
+          </Button>
         </div>
       ),
     },
@@ -106,9 +120,18 @@ export default function CandidateResults({
         <div>
           <Text className="eyebrow">SCREENING WORKSPACE</Text>
           <Title level={3}>Resume files</Title>
-          <Text type="secondary">Review uploaded files here. Matching scores will appear after the matching service is added.</Text>
+          <Text type="secondary">
+            Review uploaded files here. Matching scores will appear after the matching service is
+            added.
+          </Text>
         </div>
-        <Button type="primary" className="screen-button" loading={isSaving} disabled={!canSave || isSaving || isSaved} onClick={onSave}>
+        <Button
+          type="primary"
+          className="screen-button"
+          loading={isSaving}
+          disabled={!canSave || isSaving || isSaved}
+          onClick={onSave}
+        >
           {isSaved ? 'Screening ready' : isSaving ? 'Saving files…' : 'Save screening'}
         </Button>
       </div>
@@ -125,7 +148,9 @@ export default function CandidateResults({
 
       <div className="table-toolbar">
         <div className="table-selection-summary">
-          <Text strong>{resumes.length} {resumes.length === 1 ? 'resume' : 'resumes'}</Text>
+          <Text strong>
+            {resumes.length} {resumes.length === 1 ? 'resume' : 'resumes'}
+          </Text>
           {selectedKeys.length > 0 && <Text type="secondary">{selectedKeys.length} selected</Text>}
         </div>
         <div className="table-tools">
@@ -137,7 +162,12 @@ export default function CandidateResults({
             onChange={(event) => onQueryChange(event.target.value)}
             aria-label="Search resumes"
           />
-          <Button danger disabled={!selectedKeys.length || deleting} loading={deleting} onClick={onDeleteSelected}>
+          <Button
+            danger
+            disabled={!selectedKeys.length || deleting}
+            loading={deleting}
+            onClick={onDeleteSelected}
+          >
             Delete selected
           </Button>
         </div>
@@ -159,7 +189,8 @@ export default function CandidateResults({
           total: rows.length,
           showSizeChanger: true,
           pageSizeOptions: [5, 10, 20, 50],
-          showTotal: (total, range) => total ? `${range[0]}–${range[1]} of ${total}` : '0 resumes',
+          showTotal: (total, range) =>
+            total ? `${range[0]}–${range[1]} of ${total}` : '0 resumes',
           onChange: onPageChange,
         }}
         locale={{
@@ -174,7 +205,11 @@ export default function CandidateResults({
         }}
         scroll={{ x: 720 }}
       />
-      {screeningId && <Text className="record-hint" type="secondary">Screening reference: {screeningId.slice(0, 8)}</Text>}
+      {screeningId && (
+        <Text className="record-hint" type="secondary">
+          Screening reference: {screeningId.slice(0, 8)}
+        </Text>
+      )}
     </section>
   );
 }

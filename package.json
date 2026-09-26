@@ -8,7 +8,9 @@
     "build": "vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint . --max-warnings=0"
+    "lint": "eslint . --max-warnings=0",
+    "format": "prettier --write src public index.html vite.config.ts eslint.config.js package.json package-lock.json tsconfig.json README.md .prettierrc.json",
+    "format:check": "prettier --check src public index.html vite.config.ts eslint.config.js package.json package-lock.json tsconfig.json README.md .prettierrc.json"
   },
   "dependencies": {
     "@vitejs/plugin-react": "latest",
@@ -25,6 +27,7 @@
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.7",
     "globals": "^17.12.0",
+    "prettier": "^3.9.9",
     "typescript": ">=5.9 <6.1",
     "typescript-eslint": "^8.70.1"
   }
