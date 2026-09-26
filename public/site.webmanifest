@@ -1,0 +1,17 @@
+{
+  "name": "RecruitAI | AI Resume Screening",
+  "short_name": "RecruitAI",
+  "description": "Resume and job description review workspace",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f5f7fb",
+  "theme_color": "#3474e9",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
