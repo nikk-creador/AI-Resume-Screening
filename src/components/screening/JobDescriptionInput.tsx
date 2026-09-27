@@ -1,3 +1,5 @@
+import type { UploadProps } from 'antd';
+import type { JobDescriptionFile } from '../../types/screening';
 import { Button, Card, Input, Typography, Upload } from 'antd';
 import {
   API_URL,
@@ -6,8 +8,6 @@ import {
   MIN_JOB_DESCRIPTION_WORDS,
 } from '../../constants/screening';
 import { getWordCount } from '../../utils/screeningValidation';
-import type { UploadProps } from 'antd';
-import type { JobDescriptionFile } from '../../types/screening';
 
 const { Text, Title } = Typography;
 
@@ -35,7 +35,7 @@ export default function JobDescriptionInput({
   const wordCount = getWordCount(jobText);
   const textIsShort = jobText.trim().length > 0 && wordCount < MIN_JOB_DESCRIPTION_WORDS;
   return (
-    <Card className="section-card job-card" bordered={false}>
+    <Card className="section-card job-card" variant="borderless">
       <div className="section-heading">
         <div className="section-number">02</div>
         <div>
@@ -79,7 +79,9 @@ export default function JobDescriptionInput({
       </div>
       <Input.TextArea
         value={jobText}
-        onChange={(event) => onTextChange(event.target.value)}
+        onChange={(event) => {
+          onTextChange(event.target.value);
+        }}
         placeholder="Include the role summary, key responsibilities, and required skills…"
         disabled={disabled}
         autoSize={{ minRows: 5, maxRows: 9 }}

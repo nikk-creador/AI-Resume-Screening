@@ -1,8 +1,5 @@
-import eslint from '@eslint/js';
-import reactHooks from 'eslint-plugin-react-hooks';
-import reactRefresh from 'eslint-plugin-react-refresh';
-import globals from 'globals';
-import tseslint from 'typescript-eslint';
+import antfu from '@antfu/eslint-config';
+import css from '@eslint/css';
 
 const noComments = {
   meta: {
@@ -22,16 +19,42 @@ const noComments = {
   },
 };
 
-export default tseslint.config(
+const colorTokenMessage = 'Use a shared color token from src/theme/colors.ts.';
+const restrictedColorSyntax = [
+  { selector: 'Literal[value=/^#[\\da-f]{3,8}$/i]', message: colorTokenMessage },
+  {
+    selector: 'Literal[value=/^(?:rgb|rgba|hsl|hsla|hwb|lab|lch|color)\\(/i]',
+    message: colorTokenMessage,
+  },
+  {
+    selector:
+      'Literal[value=/^(?:aqua|black|blue|fuchsia|gray|green|lime|maroon|navy|olive|orange|purple|red|silver|teal|transparent|white|yellow|currentcolor)$/i]',
+    message: colorTokenMessage,
+  },
+];
+
+const restrictedCssColorSyntax = [
+  { selector: 'Hash', message: colorTokenMessage },
+  {
+    selector: 'Function[name=/^(?:rgb|rgba|hsl|hsla|hwb|lab|lch|color)$/i]',
+    message: colorTokenMessage,
+  },
+  {
+    selector:
+      'Identifier[name=/^(?:aqua|black|blue|fuchsia|gray|green|lime|maroon|navy|olive|orange|purple|red|silver|teal|transparent|white|yellow|currentcolor)$/i]',
+    message: colorTokenMessage,
+  },
+];
+
+const antfuConfig = antfu(
   {
     ignores: ['dist/**', 'node_modules/**', 'backend/**'],
+    react: true,
+    typescript: true,
+    stylistic: false,
   },
-  eslint.configs.recommended,
-  ...tseslint.configs.strictTypeChecked.map((config) => ({
-    ...config,
-    files: ['**/*.{ts,tsx,mts,cts}'],
-  })),
   {
+    files: ['**/*.{js,mjs,cjs,ts,tsx,mts,cts}'],
     rules: {
       'no-alert': 'error',
       'no-console': 'error',
@@ -43,15 +66,16 @@ export default tseslint.config(
       eqeqeq: ['error', 'always'],
       'no-implicit-coercion': 'error',
       'no-warning-comments': 'error',
-      '@typescript-eslint/await-thenable': 'off',
-      '@typescript-eslint/no-floating-promises': 'off',
-      '@typescript-eslint/no-misused-promises': 'off',
-      '@typescript-eslint/prefer-promise-reject-errors': 'off',
-      '@typescript-eslint/require-await': 'off',
-      '@typescript-eslint/return-await': 'off',
+      curly: 'off',
       'no-return-await': 'off',
       'prefer-promise-reject-errors': 'off',
       'require-await': 'off',
+      'ts/await-thenable': 'off',
+      'ts/no-floating-promises': 'off',
+      'ts/no-misused-promises': 'off',
+      'ts/prefer-promise-reject-errors': 'off',
+      'ts/require-await': 'off',
+      'ts/return-await': 'off',
     },
     linterOptions: {
       reportUnusedDisableDirectives: 'error',
@@ -59,31 +83,38 @@ export default tseslint.config(
     },
   },
   {
-    files: ['src/**/*.{ts,tsx}', 'vite.config.ts'],
-    languageOptions: {
-      parserOptions: {
-        projectService: true,
-      },
-      globals: globals.browser,
-    },
-    plugins: {
-      local: { rules: { 'no-comments': noComments } },
-      'react-hooks': reactHooks,
-      'react-refresh': reactRefresh,
-    },
+    files: ['src/**/*.{ts,tsx}'],
+    plugins: { local: { rules: { 'no-comments': noComments } } },
     rules: {
       'local/no-comments': 'error',
-      '@typescript-eslint/ban-ts-comment': 'error',
-      '@typescript-eslint/consistent-type-imports': ['error', { prefer: 'type-imports' }],
-      ...reactHooks.configs.flat.recommended.rules,
-      ...reactRefresh.configs.recommended.rules,
-      'react-refresh/only-export-components': ['error', { allowConstantExport: true }],
+      'no-restricted-syntax': ['error', ...restrictedColorSyntax],
+      'ts/ban-ts-comment': 'error',
+      'ts/consistent-type-imports': ['error', { prefer: 'type-imports' }],
     },
   },
   {
-    files: ['vite.config.ts', 'eslint.config.js'],
-    languageOptions: {
-      globals: globals.node,
-    },
+    files: ['src/theme/colors.ts'],
+    rules: { 'no-restricted-syntax': 'off' },
   },
 );
+
+const resolvedAntfuConfig = await antfuConfig.toConfigs();
+const antfuRuleNames = new Set(
+  resolvedAntfuConfig.flatMap((config) => Object.keys(config.rules ?? {})),
+);
+
+export default [
+  ...resolvedAntfuConfig,
+  {
+    ...css.configs.recommended,
+    files: ['src/**/*.css'],
+    language: 'css/css',
+    rules: {
+      ...Object.fromEntries([...antfuRuleNames].map((ruleName) => [ruleName, 'off'])),
+      ...css.configs.recommended.rules,
+      'css/no-invalid-properties': ['error', { allowUnknownVariables: true }],
+      'css/use-baseline': 'off',
+      'no-restricted-syntax': ['error', ...restrictedCssColorSyntax],
+    },
+  },
+];

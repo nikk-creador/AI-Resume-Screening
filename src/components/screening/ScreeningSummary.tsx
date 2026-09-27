@@ -18,17 +18,17 @@ export default function ScreeningSummary({
   return (
     <Row gutter={[16, 16]} className="summary-row">
       <Col xs={24} sm={12} lg={8}>
-        <Card className="summary-card" bordered={false}>
+        <Card className="summary-card" variant="borderless">
           <Statistic title="RESUMES IN THIS SCREENING" value={resumeCount} />
           <Text className="stat-caption">Add as many supported resume files as you need.</Text>
         </Card>
       </Col>
       <Col xs={24} sm={12} lg={8}>
-        <Card className="summary-card" bordered={false}>
+        <Card className="summary-card" variant="borderless">
           <Statistic
             title="JOB DESCRIPTION"
             value={hasJobDescription ? 'Added' : 'Needed'}
-            valueStyle={{ fontSize: 22 }}
+            styles={{ content: { fontSize: 22 } }}
           />
           <Text className="stat-caption">
             {hasJobDescription ? 'Ready for validation' : 'Upload a file or paste the role details'}
@@ -36,11 +36,11 @@ export default function ScreeningSummary({
         </Card>
       </Col>
       <Col xs={24} sm={24} lg={8}>
-        <Card className="summary-card" bordered={false}>
+        <Card className="summary-card" variant="borderless">
           <Statistic
             title="WORKSPACE STATUS"
             value={isLoading ? 'Loading' : isSaved ? 'Screening ready' : 'Draft'}
-            valueStyle={{ fontSize: 22 }}
+            styles={{ content: { fontSize: 22 } }}
           />
           <Text className="stat-caption">
             {isSaved

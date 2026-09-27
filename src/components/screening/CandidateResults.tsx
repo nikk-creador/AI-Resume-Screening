@@ -1,8 +1,8 @@
+import type { ColumnsType } from 'antd/es/table';
+import type { CandidateRow, ResumeRow } from '../../types/screening';
 import { Alert, Button, Empty, Input, Table, Tag, Typography } from 'antd';
 import { API_URL } from '../../constants/screening';
 import { displayName, formatFileSize, formatLocalDateTime } from '../../utils/screeningValidation';
-import type { ColumnsType } from 'antd/es/table';
-import type { CandidateRow, ResumeRow } from '../../types/screening';
 
 const { Text, Title } = Typography;
 
@@ -55,7 +55,7 @@ export default function CandidateResults({
       dataIndex: 'candidate',
       key: 'candidate',
       sorter: (a, b) => a.candidate.localeCompare(b.candidate),
-      render: (name, resume) => (
+      render: (name: string, resume: CandidateRow) => (
         <div className="candidate-cell">
           <span className="candidate-avatar" aria-hidden="true">
             {name.slice(0, 1).toUpperCase()}
@@ -76,7 +76,7 @@ export default function CandidateResults({
       width: 175,
       render: (_, resume) => {
         const localTime = formatLocalDateTime(resume.createdAt);
-        const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        const timezone = new Intl.DateTimeFormat().resolvedOptions().timeZone;
         return <Text title={`${localTime} (${timezone})`}>{localTime}</Text>;
       },
     },
@@ -106,7 +106,14 @@ export default function CandidateResults({
               Download
             </a>
           )}
-          <Button type="text" danger disabled={deleting} onClick={() => onDeleteOne(resume.key)}>
+          <Button
+            type="text"
+            danger
+            disabled={deleting}
+            onClick={() => {
+              onDeleteOne(resume.key);
+            }}
+          >
             Remove
           </Button>
         </div>
@@ -141,7 +148,7 @@ export default function CandidateResults({
           className="service-notice"
           type="success"
           showIcon
-          message="Screening is ready"
+          title="Screening is ready"
           description="Your job description and resume files are available in the workspace. Matching scores have not been generated yet."
         />
       )}
@@ -159,7 +166,9 @@ export default function CandidateResults({
             placeholder="Search resume files"
             allowClear
             value={query}
-            onChange={(event) => onQueryChange(event.target.value)}
+            onChange={(event) => {
+              onQueryChange(event.target.value);
+            }}
             aria-label="Search resumes"
           />
           <Button
@@ -181,7 +190,9 @@ export default function CandidateResults({
         rowSelection={{
           selectedRowKeys: selectedKeys,
           preserveSelectedRowKeys: true,
-          onChange: (keys) => onSelectionChange(keys.map(String)),
+          onChange: (keys) => {
+            onSelectionChange(keys.map(String));
+          },
         }}
         pagination={{
           current: page,

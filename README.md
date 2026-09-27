@@ -14,6 +14,7 @@ Open `http://127.0.0.1:5173`.
 Run the TypeScript checker with `npm run typecheck`.
 Run strict ESLint checks with `npm run lint`.
 Format the project with `npm run format` and verify it with `npm run format:check`.
+UI colors are centralized in `src/theme/colors.ts`; ESLint rejects hard-coded colors in components and stylesheets.
 
 ## Backend
 

@@ -7,8 +7,8 @@
     BlinkMacSystemFont,
     'Segoe UI',
     sans-serif;
-  color: #17233b;
-  background: #f5f7fb;
+  color: var(--color-text);
+  background: var(--color-background);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -24,7 +24,7 @@ body {
   margin: 0;
   min-width: 360px;
   min-height: 100vh;
-  background: #f5f7fb;
+  background: var(--color-background);
 }
 button,
 input,
@@ -37,8 +37,8 @@ textarea {
 
 .topbar {
   height: 68px;
-  background: #fff;
-  border-bottom: 1px solid #e9edf3;
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
 }
 .topbar-inner {
   width: min(1240px, calc(100% - 48px));
@@ -52,7 +52,7 @@ textarea {
   display: inline-flex;
   align-items: center;
   gap: 10px;
-  color: #17233b;
+  color: var(--color-text);
   text-decoration: none;
   font-family: inherit;
   font-size: 17px;
@@ -60,7 +60,7 @@ textarea {
   letter-spacing: -0.04em;
 }
 .brand-accent {
-  color: #3474e9;
+  color: var(--color-primary);
 }
 .brand-mark {
   display: grid;
@@ -68,11 +68,11 @@ textarea {
   width: 34px;
   height: 34px;
   border-radius: 10px;
-  color: white;
-  background: #3474e9;
+  color: var(--color-surface);
+  background: var(--color-primary);
   font-size: 15px;
   font-weight: 800;
-  box-shadow: 0 5px 12px #3474e933;
+  box-shadow: 0 5px 12px var(--color-primary-shadow);
 }
 .topbar-right {
   display: flex;
@@ -80,7 +80,7 @@ textarea {
   gap: 13px;
 }
 .workspace-label {
-  color: #99a2b2;
+  color: var(--color-workspace-muted);
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.13em;
@@ -91,8 +91,8 @@ textarea {
   width: 32px;
   height: 32px;
   border-radius: 50%;
-  color: #506181;
-  background: #eef2f8;
+  color: var(--color-secondary);
+  background: var(--color-subtle-surface);
   font-size: 11px;
   font-weight: 700;
 }
@@ -108,14 +108,14 @@ textarea {
   margin-bottom: 21px;
 }
 .eyebrow {
-  color: #71809a;
+  color: var(--color-muted-text);
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.14em;
 }
 .page-heading h1.ant-typography {
   margin: 6px 0 4px;
-  color: #17233b;
+  color: var(--color-text);
   font-family: inherit;
   font-size: clamp(26px, 3vw, 34px);
   font-weight: 800;
@@ -123,7 +123,7 @@ textarea {
 }
 .page-description {
   margin: 0;
-  color: #71809a;
+  color: var(--color-muted-text);
   font-size: 14px;
 }
 .page-error {
@@ -135,10 +135,10 @@ textarea {
   align-items: center;
   gap: 8px;
   padding: 8px 12px;
-  border: 1px solid #e4e9f1;
+  border: 1px solid var(--color-border-soft);
   border-radius: 20px;
-  color: #586780;
-  background: #fff;
+  color: var(--color-text-muted);
+  background: var(--color-surface);
   font-size: 12px;
   font-weight: 600;
 }
@@ -147,7 +147,7 @@ textarea {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: #e8a638;
+  background: var(--color-warning);
 }
 
 .summary-row {
@@ -156,30 +156,30 @@ textarea {
 .summary-card.ant-card,
 .section-card.ant-card {
   height: 100%;
-  border: 1px solid #e9edf3;
+  border: 1px solid var(--color-border);
   border-radius: 12px;
-  background: #fff;
-  box-shadow: 0 3px 12px rgb(25 42 70 / 3%);
+  background: var(--color-surface);
+  box-shadow: 0 3px 12px var(--color-surface-shadow);
 }
 .summary-card .ant-card-body {
   padding: 16px 18px 12px;
 }
 .summary-card .ant-statistic-title {
   margin-bottom: 7px;
-  color: #8b96a8;
+  color: var(--color-stat-title);
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.1em;
 }
 .summary-card .ant-statistic-content {
-  color: #1a2944;
+  color: var(--color-stat-value);
   font-family: inherit;
   font-size: 26px;
   font-weight: 700;
   line-height: 1.15;
 }
 .stat-cap {
-  color: #9aa4b4;
+  color: var(--color-caption);
   font-family: 'DM Sans', sans-serif;
   font-size: 13px;
   font-weight: 500;
@@ -191,7 +191,7 @@ textarea {
   display: block;
   overflow: hidden;
   margin-top: 4px;
-  color: #8792a4;
+  color: var(--color-caption-muted);
   font-size: 11px;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -216,34 +216,34 @@ textarea {
   width: 30px;
   height: 30px;
   border-radius: 9px;
-  color: #3474e9;
-  background: #eef4ff;
+  color: var(--color-primary);
+  background: var(--color-primary-tint);
   font-size: 11px;
   font-weight: 700;
 }
 .section-heading h4.ant-typography {
   margin: 0 0 2px;
-  color: #1c2a44;
+  color: var(--color-section-heading);
   font-family: inherit;
   font-size: 16px;
   font-weight: 700;
 }
 .section-heading .ant-typography-secondary {
-  color: #8a95a6;
+  color: var(--color-text-subtle);
   font-size: 12px;
 }
 .upload-zone.ant-upload-wrapper .ant-upload-drag {
   min-height: 173px;
-  border: 1px dashed #cbd7e8;
+  border: 1px dashed var(--color-upload-border);
   border-radius: 10px;
-  background: #fafcff;
+  background: var(--color-upload-surface);
   transition:
     border-color 0.2s,
     background 0.2s;
 }
 .upload-zone.ant-upload-wrapper .ant-upload-drag:hover {
-  border-color: #3474e9;
-  background: #f5f9ff;
+  border-color: var(--color-primary);
+  background: var(--color-primary-surface-hover);
 }
 .upload-zone.ant-upload-wrapper .ant-upload-drag .ant-upload {
   padding: 19px 12px;
@@ -254,20 +254,20 @@ textarea {
   width: 37px;
   height: 37px;
   margin: 0 auto 9px;
-  border: 1px solid #dce6f4;
+  border: 1px solid var(--color-border-pale);
   border-radius: 11px;
-  color: #3474e9;
-  background: white;
+  color: var(--color-primary);
+  background: var(--color-surface);
   font-size: 22px;
   line-height: 1;
 }
 .drop-title {
-  margin: 0 0 4px !important;
-  color: #44516a;
+  margin: 0 0 4px;
+  color: var(--color-text-soft);
   font-size: 13px;
 }
 .drop-title strong {
-  color: #3474e9;
+  color: var(--color-primary);
 }
 .upload-zone .ant-typography-secondary {
   font-size: 11px;
@@ -277,13 +277,13 @@ textarea {
   align-items: center;
   gap: 7px;
   margin-top: 11px;
-  color: #8893a4;
+  color: var(--color-privacy-text);
   font-size: 10px;
 }
 .privacy-dot {
   width: 6px;
   height: 6px;
-  background: #42a57d;
+  background: var(--color-success);
 }
 .validation-error {
   display: block;
@@ -297,9 +297,9 @@ textarea {
 }
 .job-upload-button.ant-btn {
   height: 34px;
-  border-color: #dbe3ee;
+  border-color: var(--color-input-border);
   border-radius: 7px;
-  color: #3d4d68;
+  color: var(--color-input-text);
   font-size: 12px;
   font-weight: 600;
 }
@@ -310,36 +310,36 @@ textarea {
   min-width: 0;
   margin-top: 10px;
   padding: 7px 8px;
-  border: 1px solid #e8edf4;
+  border: 1px solid var(--color-file-border);
   border-radius: 8px;
 }
 .file-type {
   flex: 0 0 auto;
   padding: 4px 5px;
   border-radius: 4px;
-  color: #5374a3;
-  background: #eff4fb;
+  color: var(--color-file-tag-text);
+  background: var(--color-file-tag-background);
   font-size: 9px;
   font-weight: 700;
 }
 .job-file-name {
   overflow: hidden;
   flex: 1;
-  color: #526078;
+  color: var(--color-file-name);
   font-size: 11px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .job-file-row a,
 .row-actions a {
-  color: #3474e9;
+  color: var(--color-primary);
   font-size: 11px;
   white-space: nowrap;
 }
 .job-file-row .ant-btn {
   flex: 0 0 auto;
   padding-inline: 5px;
-  color: #8a95a6;
+  color: var(--color-text-subtle);
   font-size: 11px;
 }
 .or-divider {
@@ -347,7 +347,7 @@ textarea {
   align-items: center;
   gap: 10px;
   margin: 17px 0 9px;
-  color: #a1aaba;
+  color: var(--color-subtle-muted);
   font-size: 9px;
   font-weight: 700;
   letter-spacing: 0.11em;
@@ -356,27 +356,27 @@ textarea {
 .or-divider::after {
   height: 1px;
   flex: 1;
-  background: #edf0f5;
+  background: var(--color-divider);
   content: '';
 }
 .job-card textarea.ant-input {
-  min-height: 90px !important;
-  border-color: #e1e7ef;
+  min-height: 90px;
+  border-color: var(--color-input-focus-border);
   border-radius: 8px;
   font-size: 12px;
   resize: vertical;
 }
 .job-card textarea.ant-input::placeholder {
-  color: #a4adbb;
+  color: var(--color-placeholder);
 }
 .job-card .ant-input-textarea-show-count::after {
-  color: #a0a9b6;
+  color: var(--color-counter);
   font-size: 10px;
 }
 .field-hint {
   display: block;
   margin-top: 6px;
-  color: #9aa4b2;
+  color: var(--color-field-hint);
   font-size: 10px;
 }
 .job-description-meta {
@@ -392,10 +392,10 @@ textarea {
 }
 section.section-card.results-card {
   padding: 21px;
-  border: 1px solid #e9edf3;
+  border: 1px solid var(--color-border);
   border-radius: 12px;
-  background: #fff;
-  box-shadow: 0 3px 12px rgb(25 42 70 / 3%);
+  background: var(--color-surface);
+  box-shadow: 0 3px 12px var(--color-surface-shadow);
 }
 .results-header {
   display: flex;
@@ -406,14 +406,14 @@ section.section-card.results-card {
 }
 .results-header h3.ant-typography {
   margin: 4px 0;
-  color: #1b2943;
+  color: var(--color-heading);
   font-family: inherit;
   font-size: 20px;
   font-weight: 800;
   letter-spacing: -0.03em;
 }
 .results-header > div > .ant-typography-secondary {
-  color: #8994a5;
+  color: var(--color-description);
   font-size: 12px;
 }
 .screen-button.ant-btn {
@@ -424,23 +424,23 @@ section.section-card.results-card {
   font-weight: 600;
 }
 .screen-button.ant-btn[disabled] {
-  color: #8b98ac;
-  background: #edf1f6;
+  color: var(--color-disabled-text);
+  background: var(--color-disabled-background);
   box-shadow: none;
 }
 .service-notice.ant-alert {
   margin-bottom: 17px;
-  border: 1px solid #dbe8fb;
+  border: 1px solid var(--color-notice-border);
   border-radius: 9px;
-  background: #f7faff;
+  background: var(--color-notice-background);
 }
 .service-notice .ant-alert-message {
-  color: #34567f;
+  color: var(--color-notice-title);
   font-size: 12px;
   font-weight: 700;
 }
 .service-notice .ant-alert-description {
-  color: #7186a0;
+  color: var(--color-notice-description);
   font-size: 11px;
   line-height: 1.5;
 }
@@ -450,7 +450,7 @@ section.section-card.results-card {
   justify-content: space-between;
   gap: 14px;
   margin: 0 0 8px;
-  color: #4c5b73;
+  color: var(--color-toolbar-text);
   font-size: 12px;
 }
 .table-selection-summary,
@@ -470,13 +470,13 @@ section.section-card.results-card {
   font-size: 12px;
 }
 .candidate-table .ant-table {
-  color: #34425a;
+  color: var(--color-table-text);
   font-size: 12px;
 }
 .candidate-table .ant-table-thead > tr > th {
   padding-block: 11px;
-  color: #929daf;
-  background: #fafbfd;
+  color: var(--color-table-header);
+  background: var(--color-table-header-background);
   font-size: 9px;
   font-weight: 700;
   letter-spacing: 0.1em;
@@ -497,8 +497,8 @@ section.section-card.results-card {
   width: 32px;
   height: 32px;
   border-radius: 9px;
-  color: #4c71b2;
-  background: #edf3ff;
+  color: var(--color-avatar-text);
+  background: var(--color-avatar-background);
   font-size: 12px;
   font-weight: 700;
 }
@@ -511,13 +511,13 @@ section.section-card.results-card {
 .candidate-details .ant-typography {
   overflow: hidden;
   max-width: 330px;
-  color: #30415e;
+  color: var(--color-candidate-text);
   font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .candidate-details .candidate-file {
-  color: #99a2af;
+  color: var(--color-file-caption);
   font-size: 10px;
 }
 .row-actions {
@@ -529,17 +529,17 @@ section.section-card.results-card {
 }
 .status-tag {
   margin: 0;
-  border: 1px solid #d8eee4;
+  border: 1px solid var(--color-status-border);
   border-radius: 20px;
-  color: #39815f;
-  background: #f1faf5;
+  color: var(--color-status-text);
+  background: var(--color-status-background);
   font-size: 10px;
 }
 .candidate-table .ant-empty {
   margin-block: 23px;
 }
 .candidate-table .ant-empty-description {
-  color: #77849a;
+  color: var(--color-empty-text);
   font-size: 12px;
 }
 .candidate-table .ant-empty .ant-typography-secondary {
@@ -551,7 +551,7 @@ section.section-card.results-card {
 }
 .page-footer {
   padding: 0 0 32px;
-  color: #929cad;
+  color: var(--color-footer);
   text-align: center;
   font-size: 10px;
 }

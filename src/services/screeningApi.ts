@@ -1,5 +1,5 @@
-import { API_URL } from '../constants/screening';
 import type { ScreeningApiRecord, ScreeningCreateInput } from '../types/screening';
+import { API_URL } from '../constants/screening';
 
 export class ApiError extends Error {
   constructor(

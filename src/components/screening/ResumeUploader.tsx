@@ -1,7 +1,7 @@
+import type { UploadProps } from 'antd';
 import { Card, Typography, Upload } from 'antd';
 import { MAX_FILE_SIZE_BYTES, RESUME_EXTENSIONS } from '../../constants/screening';
 import { formatFileSize } from '../../utils/screeningValidation';
-import type { UploadProps } from 'antd';
 
 const { Dragger } = Upload;
 const { Paragraph, Text, Title } = Typography;
@@ -18,7 +18,7 @@ export default function ResumeUploader({
   resumeCount,
 }: ResumeUploaderProps) {
   return (
-    <Card className="section-card intake-card" bordered={false}>
+    <Card className="section-card intake-card" variant="borderless">
       <div className="section-heading">
         <div className="section-number">01</div>
         <div>

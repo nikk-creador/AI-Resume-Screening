@@ -1,30 +1,30 @@
-import { useEffect, useRef, useState } from 'react';
 import type { Key } from 'react';
-import { Alert, Col, message, Row, Typography, Upload } from 'antd';
-import AppHeader from './components/layout/AppHeader';
-import CandidateResults from './components/screening/CandidateResults';
-import JobDescriptionInput from './components/screening/JobDescriptionInput';
-import ResumeUploader from './components/screening/ResumeUploader';
-import ScreeningSummary from './components/screening/ScreeningSummary';
-import {
-  SCREENING_STORAGE_KEY,
-  MAX_FILE_SIZE_BYTES,
-  JOB_DESCRIPTION_EXTENSIONS,
-} from './constants/screening';
-import {
-  createScreening,
-  deleteResumes,
-  ApiError,
-  getErrorMessage,
-  loadScreening,
-} from './services/screeningApi';
-import { getExtension, validateJobDescription, validateResume } from './utils/screeningValidation';
 import type {
   JobDescriptionFile,
   ResumeRow,
   ScreeningApiRecord,
   ScreeningState,
 } from './types/screening';
+import { Alert, Col, message, Row, Typography, Upload } from 'antd';
+import { useEffect, useRef, useState } from 'react';
+import AppHeader from './components/layout/AppHeader';
+import CandidateResults from './components/screening/CandidateResults';
+import JobDescriptionInput from './components/screening/JobDescriptionInput';
+import ResumeUploader from './components/screening/ResumeUploader';
+import ScreeningSummary from './components/screening/ScreeningSummary';
+import {
+  JOB_DESCRIPTION_EXTENSIONS,
+  MAX_FILE_SIZE_BYTES,
+  SCREENING_STORAGE_KEY,
+} from './constants/screening';
+import {
+  ApiError,
+  createScreening,
+  deleteResumes,
+  getErrorMessage,
+  loadScreening,
+} from './services/screeningApi';
+import { getExtension, validateJobDescription, validateResume } from './utils/screeningValidation';
 
 const { Paragraph, Text, Title } = Typography;
 
@@ -255,9 +255,12 @@ export default function App() {
             className="page-error"
             type="error"
             showIcon
-            message={pageError}
-            closable
-            onClose={() => setPageError('')}
+            title={pageError}
+            closable={{
+              onClose: () => {
+                setPageError('');
+              },
+            }}
           />
         )}
 
@@ -319,7 +322,9 @@ export default function App() {
             setPage(nextPage);
             setPageSize(nextPageSize);
           }}
-          onSelectionChange={(keys: Key[]) => setSelectedKeys(keys.map(String))}
+          onSelectionChange={(keys: Key[]) => {
+            setSelectedKeys(keys.map(String));
+          }}
           onDeleteSelected={() => removeResumes(selectedKeys)}
           onDeleteOne={(key) => removeResumes([key])}
           deleting={deleting}
