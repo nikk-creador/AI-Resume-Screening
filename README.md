@@ -1,3 +1,5 @@
+New accounts must verify their email before password sign-in. Password reset and verification links expire after 30 minutes. For local development, the auth screens show the generated link directly when SendGrid is not configured. Before production, set `APP_BASE_URL` to the public frontend URL, configure `SENDGRID_API_KEY` with a key that has Mail Send permission, and set `SENDGRID_FROM_EMAIL` to an authenticated sender address. Keep the API key in `.env`, not in source control or `.env.example`. Team invitations are not enabled because the current workspace has no team or membership model; use account registration for individual access.
+New accounts must verify their email before password sign-in. Password reset and verification links expire after 30 minutes. For local development, the auth screens show the generated link directly when SendGrid is not configured. Before production, set `APP_BASE_URL` to the public frontend URL, configure `SENDGRID_API_KEY` with a key that has Mail Send permission, and set `SENDGRID_FROM_EMAIL` to an authenticated sender address. Keep the API key in `.env`, not in source control or `.env.example`. Team invitations are not enabled because the current workspace has no team or membership model; use account registration for individual access.
 # RecruitAI
 
 RecruitAI is a resume and job-description review workspace built with React, TypeScript, Ant Design, FastAPI, and SQLAlchemy.
@@ -66,6 +68,8 @@ Copy `.env.example` to `.env` before starting the backend. On first startup, a l
 The frontend shows these demo credentials only during local development. Demo user seeding is disabled when `APP_ENV=production`. Set a unique `AUTH_SECRET_KEY` and the deployed frontend origins in `CORS_ORIGINS` before deployment. Set a strong `DEMO_USER_PASSWORD` if demo seeding is intentionally enabled outside local development.
 
 Sign-in uses an HTTP-only, eight-hour session cookie. Screenings and resume downloads are scoped to the signed-in account. Open both the frontend and backend with the same local hostname (`127.0.0.1`) so the browser sends the session cookie.
+
+New accounts must verify their email before password sign-in. Password reset and verification links expire after 30 minutes. For local development, the auth screens show the generated link directly when SMTP is not configured. Before production, set `APP_BASE_URL` to the public frontend URL and configure `SMTP_HOST`, `SMTP_PORT`, `SMTP_FROM`, `SMTP_USE_TLS`, and, if required by the provider, `SMTP_USERNAME` and `SMTP_PASSWORD`. Team invitations are not enabled because the current workspace has no team or membership model; use account registration for individual access.
 
 The API uses REST endpoints for authentication, screening records, resume management, and document uploads and downloads.
 

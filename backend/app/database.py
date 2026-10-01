@@ -45,6 +45,7 @@ def migrate_screening_schema(bind=engine) -> None:
             "reviewer_updated_at": DateTime(timezone=True),
         },
         "resumes": {"language_code": String(12), "structured_profile": JSON()},
+        "users": {"is_verified": Boolean()},
     }
     with bind.begin() as connection:
         # API and worker startup can run at the same time. Serialize inspection
@@ -68,6 +69,11 @@ def migrate_screening_schema(bind=engine) -> None:
                             "UPDATE screenings SET name = 'Screening ' || id "
                             "WHERE name IS NULL OR trim(name) = ''"
                         )
+                    )
+                    continue
+                if table_name == "users" and column_name == "is_verified":
+                    connection.execute(
+                        text("ALTER TABLE users ADD COLUMN is_verified BOOLEAN NOT NULL DEFAULT TRUE")
                     )
                     continue
                 compiled_type = column_type.compile(dialect=bind.dialect)

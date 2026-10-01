@@ -4,7 +4,9 @@ import NotFoundPage from './NotFoundPage';
 import { routes } from './paths';
 import RequireAuth from './RequireAuth';
 import WorkspaceLayout from './WorkspaceLayout';
+import type { AuthMode } from '../features/auth/components/SignIn';
 import SignIn from '../features/auth/components/SignIn';
+import type { AuthActionResponse } from '../services/authApi';
 import type { AuthUser } from '../types/auth';
 
 interface AppRouterProps {
@@ -16,6 +18,10 @@ interface AppRouterProps {
   onSignIn: (email: string, password: string) => Promise<void>;
   onGoogleSignIn: (credential: string) => Promise<void>;
   onSignOut: () => void;
+  onRegister: (fullName: string, email: string, password: string) => Promise<AuthActionResponse>;
+  onVerifyEmail: (token: string) => Promise<AuthActionResponse>;
+  onRequestPasswordReset: (email: string) => Promise<AuthActionResponse>;
+  onResetPassword: (token: string, password: string) => Promise<AuthActionResponse>;
 }
 
 export default function AppRouter({
@@ -27,6 +33,10 @@ export default function AppRouter({
   onSignIn,
   onGoogleSignIn,
   onSignOut,
+  onRegister,
+  onVerifyEmail,
+  onRequestPasswordReset,
+  onResetPassword,
 }: AppRouterProps) {
   if (checkingSession) {
     return (
@@ -36,24 +46,31 @@ export default function AppRouter({
     );
   }
 
+  const authPage = (mode: AuthMode) =>
+    user ? (
+      <Navigate to={routes.home} replace />
+    ) : (
+      <SignIn
+        mode={mode}
+        error={authError}
+        loading={signingIn}
+        onClearError={onClearAuthError}
+        onSubmit={onSignIn}
+        onGoogleSignIn={onGoogleSignIn}
+        onRegister={onRegister}
+        onVerifyEmail={onVerifyEmail}
+        onRequestPasswordReset={onRequestPasswordReset}
+        onResetPassword={onResetPassword}
+      />
+    );
+
   return (
     <Routes>
-      <Route
-        path={routes.signIn}
-        element={
-          !user ? (
-            <SignIn
-              error={authError}
-              loading={signingIn}
-              onClearError={onClearAuthError}
-              onSubmit={onSignIn}
-              onGoogleSignIn={onGoogleSignIn}
-            />
-          ) : (
-            <Navigate to={routes.home} replace />
-          )
-        }
-      />
+      <Route path={routes.signIn} element={authPage('signin')} />
+      <Route path={routes.register} element={authPage('register')} />
+      <Route path={routes.forgotPassword} element={authPage('forgot')} />
+      <Route path={routes.verifyEmail} element={authPage('verify')} />
+      <Route path={routes.resetPassword} element={authPage('reset')} />
       {!user && <Route path={routes.home} element={<Navigate to={routes.signIn} replace />} />}
       <Route element={<RequireAuth user={user} />}>
         {user && (

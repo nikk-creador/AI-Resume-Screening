@@ -6,6 +6,50 @@ interface AuthResponse {
   user: AuthUser;
 }
 
+export interface AuthActionResponse {
+  message: string;
+  action_url?: string | null;
+}
+
+export async function registerAccount(
+  fullName: string,
+  email: string,
+  password: string,
+): Promise<AuthActionResponse> {
+  return apiRequest<AuthActionResponse>(
+    '/api/auth/register',
+    { method: 'POST', body: JSON.stringify({ full_name: fullName, email, password }) },
+    { timeoutMs: API_TIMEOUT_MS, notifyUnauthorized: false },
+  );
+}
+
+export async function completeEmailVerification(token: string): Promise<AuthActionResponse> {
+  return apiRequest<AuthActionResponse>(
+    '/api/auth/verification/complete',
+    { method: 'POST', body: JSON.stringify({ token }) },
+    { timeoutMs: API_TIMEOUT_MS, notifyUnauthorized: false },
+  );
+}
+
+export async function requestPasswordReset(email: string): Promise<AuthActionResponse> {
+  return apiRequest<AuthActionResponse>(
+    '/api/auth/password-reset/request',
+    { method: 'POST', body: JSON.stringify({ email }) },
+    { timeoutMs: API_TIMEOUT_MS, notifyUnauthorized: false },
+  );
+}
+
+export async function completePasswordReset(
+  token: string,
+  password: string,
+): Promise<AuthActionResponse> {
+  return apiRequest<AuthActionResponse>(
+    '/api/auth/password-reset/complete',
+    { method: 'POST', body: JSON.stringify({ token, password }) },
+    { timeoutMs: API_TIMEOUT_MS, notifyUnauthorized: false },
+  );
+}
+
 export async function loadCurrentUser(): Promise<AuthUser | null> {
   try {
     const response = await apiRequest<AuthResponse | null>(

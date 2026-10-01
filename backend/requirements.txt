@@ -14,3 +14,4 @@ fastembed>=0.7,<1.0
 pwdlib[argon2]>=0.2,<1.0
 PyJWT>=2.8,<3.0
 google-auth[requests]>=2.0,<3.0
+sendgrid>=6.11,<7.0

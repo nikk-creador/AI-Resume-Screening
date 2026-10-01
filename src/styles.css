@@ -1079,6 +1079,24 @@ section.section-card.results-card {
   margin-bottom: 20px;
   border-radius: 9px;
 }
+.auth-success {
+  margin-bottom: 20px;
+  border-radius: 9px;
+}
+.auth-success .ant-alert-description {
+  overflow-wrap: anywhere;
+}
+.auth-links {
+  display: grid;
+  gap: 11px;
+  margin-top: 18px;
+  text-align: center;
+  font-size: 13px;
+}
+.auth-links a {
+  color: var(--color-primary);
+  font-weight: 600;
+}
 .auth-card .ant-form-item-label > label {
   color: var(--color-text-soft);
   font-size: 14px;

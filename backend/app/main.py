@@ -1,5 +1,7 @@
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+import hashlib
+import hmac
 from io import BytesIO
 import json
 import os
@@ -9,8 +11,10 @@ import secrets
 from threading import Event, Thread
 from typing import Literal
 from uuid import uuid4
+from urllib.parse import quote
 
 from google.auth.exceptions import GoogleAuthError
+import jwt
 from docx import Document
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Response, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -24,11 +28,14 @@ from .auth import (
     SESSION_COOKIE,
     SESSION_TTL_SECONDS,
     authenticate_user,
+    create_action_token,
     create_session_token,
+    decode_action_token,
     get_current_user,
     hash_password,
     normalize_email,
     seed_demo_user,
+    send_auth_email,
     verify_google_credential,
 )
 from .database import Base, SessionLocal, UPLOAD_DIR, engine, get_db, migrate_screening_schema
@@ -53,6 +60,24 @@ class BulkDeleteResumes(BaseModel):
 class LoginRequest(BaseModel):
     email: str = Field(min_length=3, max_length=320)
     password: str = Field(min_length=1, max_length=256)
+
+
+class RegisterRequest(BaseModel):
+    full_name: str = Field(min_length=2, max_length=120)
+    email: str = Field(min_length=3, max_length=320)
+    password: str = Field(min_length=12, max_length=256)
+
+
+class EmailActionRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=320)
+
+
+class TokenActionRequest(BaseModel):
+    token: str = Field(min_length=1, max_length=4096)
+
+
+class ResetPasswordRequest(TokenActionRequest):
+    password: str = Field(min_length=12, max_length=256)
 
 
 class GoogleSignInRequest(BaseModel):
@@ -180,6 +205,51 @@ def ai_test(_: User = Depends(get_current_user)):
     return {"ok": True, "model": model, "latency_ms": latency_ms}
 
 
+def auth_action_url(path: str, token: str) -> str:
+    base_url = os.getenv("APP_BASE_URL", "http://127.0.0.1:5173").rstrip("/")
+    return f"{base_url}{path}?token={quote(token)}"
+
+
+def deliver_auth_action(
+    email: str,
+    subject: str,
+    action_url: str,
+    *,
+    password_reset: bool = False,
+) -> None:
+    try:
+        send_auth_email(email, subject, action_url, password_reset=password_reset)
+    except (OSError, RuntimeError, ValueError) as error:
+        raise HTTPException(
+            status_code=503,
+            detail="Email delivery is temporarily unavailable. Try again later.",
+        ) from error
+
+
+@app.post("/api/auth/register", status_code=status.HTTP_201_CREATED, tags=["authentication"])
+def register_account(payload: RegisterRequest, db: Session = Depends(get_db)) -> dict[str, str | None]:
+    email = normalize_email(payload.email)
+    if db.scalar(select(User).where(User.email == email)) is not None:
+        raise HTTPException(status_code=409, detail="An account with this email already exists.")
+
+    user = User(
+        id=str(uuid4()),
+        email=email,
+        full_name=payload.full_name.strip(),
+        password_hash=hash_password(payload.password),
+        is_verified=False,
+    )
+    db.add(user)
+    db.commit()
+    action_url = auth_action_url(
+        "/verify-email", create_action_token(user, "email_verification")
+    )
+    deliver_auth_action(email, "Verify your RecruitAI account", action_url)
+    return {
+        "message": "Account created. Check your email for a verification link.",
+        "action_url": action_url if APP_ENV != "production" else None,
+    }
+
 def screening_payload(screening: Screening) -> dict:
     return {
         "id": screening.id,
@@ -306,6 +376,11 @@ def login(payload: LoginRequest, response: Response, db: Session = Depends(get_d
     user = authenticate_user(db, payload.email, payload.password)
     if user is None:
         raise HTTPException(status_code=401, detail="Email or password is incorrect.")
+    if not user.is_verified:
+        raise HTTPException(
+            status_code=403,
+            detail="Verify your email before signing in.",
+        )
     response.set_cookie(
         key=SESSION_COOKIE,
         value=create_session_token(user),
@@ -316,6 +391,62 @@ def login(payload: LoginRequest, response: Response, db: Session = Depends(get_d
         path="/",
     )
     return {"user": {"id": user.id, "email": user.email, "full_name": user.full_name}}
+
+
+@app.post("/api/auth/verification/complete", tags=["authentication"])
+def verify_account(payload: TokenActionRequest, db: Session = Depends(get_db)) -> dict[str, str]:
+    try:
+        claims = decode_action_token(payload.token, "email_verification")
+    except jwt.InvalidTokenError as error:
+        raise HTTPException(status_code=400, detail="This link is invalid or expired.") from error
+    user = db.get(User, claims["sub"])
+    if user is None or not user.is_active:
+        raise HTTPException(status_code=400, detail="This link is invalid or expired.")
+    if not user.is_verified:
+        user.is_verified = True
+        db.commit()
+    return {"message": "Email verified. You can now sign in."}
+
+
+@app.post("/api/auth/password-reset/request", tags=["authentication"])
+def request_password_reset(
+    payload: EmailActionRequest, db: Session = Depends(get_db)
+) -> dict[str, str | None]:
+    user = db.scalar(select(User).where(User.email == normalize_email(payload.email)))
+    action_url = None
+    if user is not None and user.is_active and user.is_verified:
+        action_url = auth_action_url(
+            "/reset-password", create_action_token(user, "password_reset")
+        )
+        deliver_auth_action(
+            user.email,
+            "Reset your RecruitAI password",
+            action_url,
+            password_reset=True,
+        )
+    return {
+        "message": "If an account exists for that email, a password reset link has been sent.",
+        "action_url": action_url if APP_ENV != "production" else None,
+    }
+
+
+@app.post("/api/auth/password-reset/complete", tags=["authentication"])
+def reset_password(payload: ResetPasswordRequest, db: Session = Depends(get_db)) -> dict[str, str]:
+    try:
+        claims = decode_action_token(payload.token, "password_reset")
+    except jwt.InvalidTokenError as error:
+        raise HTTPException(status_code=400, detail="This link is invalid or expired.") from error
+    user = db.get(User, claims["sub"])
+    fingerprint = hashlib.sha256(user.password_hash.encode()).hexdigest() if user else ""
+    if (
+        user is None
+        or not user.is_active
+        or not hmac.compare_digest(str(claims.get("password_fingerprint", "")), fingerprint)
+    ):
+        raise HTTPException(status_code=400, detail="This link is invalid or expired.")
+    user.password_hash = hash_password(payload.password)
+    db.commit()
+    return {"message": "Password updated. You can now sign in."}
 
 
 @app.post("/api/auth/google", tags=["authentication"])
@@ -347,6 +478,9 @@ def google_login(
         db.commit()
     elif not user.is_active:
         raise HTTPException(status_code=403, detail="This account is disabled.")
+    elif not user.is_verified:
+        user.is_verified = True
+        db.commit()
 
     response.set_cookie(
         key=SESSION_COOKIE,

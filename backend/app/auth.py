@@ -1,8 +1,13 @@
 from datetime import datetime, timedelta, timezone
+from html import escape
+import hashlib
 import os
+from pathlib import Path
 from uuid import uuid4
 
 import jwt
+from sendgrid import SendGridAPIClient
+from sendgrid.helpers.mail import Content, Email, Mail, To
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token
 from fastapi import Cookie, Depends, HTTPException, status
@@ -15,6 +20,8 @@ from .models import Screening, User
 
 SESSION_COOKIE = "recruitai_session"
 SESSION_TTL_SECONDS = 60 * 60 * 8
+ACTION_TOKEN_TTL_SECONDS = 60 * 30
+PASSWORD_RESET_EMAIL_TEMPLATE = Path(__file__).resolve().parent / "templates" / "password_reset.html"
 PASSWORD_HASHER = PasswordHash.recommended()
 _DUMMY_PASSWORD_HASH = PASSWORD_HASHER.hash("not-a-valid-user-password")
 APP_ENV = os.getenv("APP_ENV", "development").strip().lower()
@@ -53,6 +60,63 @@ def create_session_token(user: User) -> str:
         AUTH_SECRET_KEY,
         algorithm="HS256",
     )
+
+
+def create_action_token(user: User, purpose: str) -> str:
+    now = datetime.now(timezone.utc)
+    claims = {
+        "sub": user.id,
+        "purpose": purpose,
+        "iat": now,
+        "exp": now + timedelta(seconds=ACTION_TOKEN_TTL_SECONDS),
+    }
+    if purpose == "password_reset":
+        claims["password_fingerprint"] = hashlib.sha256(user.password_hash.encode()).hexdigest()
+    return jwt.encode(claims, AUTH_SECRET_KEY, algorithm="HS256")
+
+
+def decode_action_token(token: str, purpose: str) -> dict:
+    claims = jwt.decode(token, AUTH_SECRET_KEY, algorithms=["HS256"])
+    if claims.get("purpose") != purpose or not isinstance(claims.get("sub"), str):
+        raise jwt.InvalidTokenError("Invalid action token.")
+    return claims
+
+
+def send_auth_email(
+    email: str,
+    subject: str,
+    action_url: str,
+    *,
+    password_reset: bool = False,
+) -> bool:
+    api_key = os.getenv("SENDGRID_API_KEY", "").strip()
+    from_email = os.getenv("SENDGRID_FROM_EMAIL", "").strip()
+    if not api_key or not from_email:
+        if APP_ENV == "production":
+            raise RuntimeError("SendGrid email delivery is not configured.")
+        return False
+
+    plain_text = (
+        "We received a request to reset your RecruitAI password.\n\n"
+        f"Choose a new password using this secure link: {action_url}\n\n"
+        "This link expires in 30 minutes and can only be used once. "
+        "If you didn't request a password reset, you can ignore this email."
+        if password_reset
+        else f"Use this link to verify your RecruitAI account. It expires in 30 minutes.\n\n{action_url}"
+    )
+    message = Mail(Email(from_email), To(email), subject, Content("text/plain", plain_text))
+    if password_reset:
+        html_template = PASSWORD_RESET_EMAIL_TEMPLATE.read_text(encoding="utf-8")
+        html_content = html_template.replace("{{{reset_url}}}", escape(action_url, quote=True))
+        message.add_content(Content("text/html", html_content))
+
+    try:
+        response = SendGridAPIClient(api_key=api_key).send(message)
+    except Exception as error:
+        raise RuntimeError("SendGrid email delivery failed.") from error
+    if response.status_code != 202:
+        raise RuntimeError(f"SendGrid did not accept the email (HTTP {response.status_code}).")
+    return True
 
 
 def verify_google_credential(credential: str) -> dict:
@@ -106,6 +170,7 @@ def seed_demo_user(db: Session) -> None:
             email=email,
             full_name="RecruitAI Demo",
             password_hash=hash_password(password),
+            is_verified=True,
         )
         db.add(user)
         db.flush()
