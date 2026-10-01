@@ -1,0 +1,4 @@
+accelerate>=1.1,<2.0
+bitsandbytes>=0.45,<1.0
+peft>=0.14,<1.0
+transformers>=4.46,<5.0
