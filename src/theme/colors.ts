@@ -1,4 +1,5 @@
 export const COLORS = {
+  transparent: 'transparent',
   primary: '#3474e9',
   primaryShadow: 'rgb(52 116 233 / 20%)',
   background: '#f5f7fb',
@@ -27,6 +28,7 @@ export const COLORS = {
   textSoft: '#44516a',
   privacyText: '#8893a4',
   success: '#42a57d',
+  danger: '#d9363e',
   inputBorder: '#dbe3ee',
   inputText: '#3d4d68',
   fileBorder: '#e8edf4',
@@ -60,4 +62,13 @@ export const COLORS = {
   emptyText: '#77849a',
   footer: '#929cad',
   surfaceShadow: 'rgb(25 42 70 / 3%)',
+  authPanel: '#152b50',
+  authPanelDeep: '#10213d',
+  authPanelText: '#f4f7ff',
+  authPanelMuted: '#bdc9dc',
+  authAccent: '#a9c5ff',
+  authLilac: '#d8ccff',
+  authSky: '#a9deeb',
+  authTag: '#e4edff',
+  authTagText: '#34527d',
 } as const;

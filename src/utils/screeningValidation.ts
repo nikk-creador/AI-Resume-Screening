@@ -1,4 +1,3 @@
-import type { ResumeRow } from '../types/screening';
 import {
   JOB_DESCRIPTION_EXTENSIONS,
   MAX_FILE_SIZE_BYTES,
@@ -6,6 +5,7 @@ import {
   MIN_JOB_DESCRIPTION_WORDS,
   RESUME_EXTENSIONS,
 } from '../constants/screening';
+import type { ResumeRow } from '../types/screening';
 
 export function getExtension(filename = ''): string {
   return filename.split('.').pop()?.toLowerCase() ?? '';
