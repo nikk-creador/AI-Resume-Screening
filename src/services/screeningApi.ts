@@ -1,141 +1,150 @@
-import type { ScreeningApiRecord, ScreeningCreateInput } from '../types/screening';
-import { API_URL } from '../constants/screening';
+import { apiRequest as request } from './api/client';
+import type {
+  EvaluationCriterion,
+  JobRequirement,
+  RetryMode,
+  ScreeningApiRecord,
+  ScreeningCreateInput,
+  ScreeningListResponse,
+} from '../types/screening';
 
-export class ApiError extends Error {
-  constructor(
-    message: string,
-    public readonly status: number,
-  ) {
-    super(message);
-    this.name = 'ApiError';
-  }
+export { ApiError } from './api/client';
+
+export interface AITestResponse {
+  ok: boolean;
+  model: string;
+  latency_ms: number;
 }
 
-interface ApiErrorPayload {
-  detail?: unknown;
+export function testAIService(): Promise<AITestResponse> {
+  return request<AITestResponse>('/api/ai/test', { method: 'POST' });
 }
 
-interface GraphQLResponse<T> {
-  data?: T;
-  errors?: Array<{ message: string }>;
-}
-
-async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
-  let response: Response;
-  try {
-    response = await fetch(`${API_URL}${path}`, options);
-  } catch {
-    throw new ApiError("Can't reach the backend. Check that the API is running and try again.", 0);
-  }
-
-  if (response.status === 204) return null as T;
-  const data: unknown = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    const payload = data as ApiErrorPayload;
-    const detail = Array.isArray(payload.detail)
-      ? payload.detail
-          .map((item: unknown) => {
-            if (typeof item === 'object' && item !== null && 'msg' in item) {
-              return String(item.msg);
-            }
-            return '';
-          })
-          .filter(Boolean)
-          .join(' ')
-      : typeof payload.detail === 'string'
-        ? payload.detail
-        : undefined;
-    throw new ApiError(
-      detail || `Request failed (${response.status}). Try again.`,
-      response.status,
-    );
-  }
-  return data as T;
+export async function suggestScreeningCriteria(
+  jobDescriptionText: string,
+  jobDescriptionFile: File | null,
+): Promise<EvaluationCriterion[]> {
+  const formData = new FormData();
+  formData.append('job_description_text', jobDescriptionText);
+  if (jobDescriptionFile) formData.append('job_description_file', jobDescriptionFile);
+  const result = await request<{ criteria: EvaluationCriterion[] }>(
+    '/api/screenings/suggest-criteria',
+    { method: 'POST', body: formData },
+  );
+  return result.criteria;
 }
 
 export function getErrorMessage(error: unknown, fallback: string): string {
-  return error instanceof Error ? error.message : fallback;
-}
-
-async function graphQLRequest<T>(
-  query: string,
-  variables: Record<string, string | string[]>,
-): Promise<T> {
-  let response: Response;
-  try {
-    response = await fetch(`${API_URL}/graphql`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query, variables }),
-    });
-  } catch {
-    throw new ApiError(
-      "Can't reach the GraphQL API. Check that the backend is running and try again.",
-      0,
-    );
+  if (error instanceof Error) return error.message;
+  if (typeof error === 'object' && error !== null && 'message' in error) {
+    return typeof error.message === 'string' ? error.message : fallback;
   }
-
-  const result = (await response.json().catch(() => ({}))) as GraphQLResponse<T>;
-  if (!response.ok || result.errors?.length || !result.data) {
-    throw new ApiError(
-      result.errors?.map((error) => error.message).join(' ') ||
-        `GraphQL request failed (${response.status}).`,
-      response.status,
-    );
-  }
-  return result.data;
+  return fallback;
 }
 
 export async function loadScreening(screeningId: string): Promise<ScreeningApiRecord> {
-  const result = await graphQLRequest<{ screening: ScreeningApiRecord | null }>(
-    `query ScreeningById($id: ID!) {
-      screening(id: $id) {
-        id
-        created_at: createdAt
-        job_description_text: jobDescriptionText
-        job_description_filename: jobDescriptionFilename
-        resumes {
-          id
-          filename
-          size_bytes: sizeBytes
-          content_type: contentType
-          created_at: createdAt
-        }
-      }
-    }`,
-    { id: screeningId },
+  return request<ScreeningApiRecord>(`/api/screenings/${encodeURIComponent(screeningId)}`);
+}
+
+export async function updateScreening(
+  screeningId: string,
+  changes: { name: string; job_description_text: string; criteria: EvaluationCriterion[] },
+): Promise<ScreeningApiRecord> {
+  return request<ScreeningApiRecord>(`/api/screenings/${encodeURIComponent(screeningId)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(changes),
+  });
+}
+
+export function updateScreeningRequirements(
+  screeningId: string,
+  requirements: JobRequirement[],
+): Promise<{ requirements: JobRequirement[]; queued_count: number }> {
+  return request<{ requirements: JobRequirement[]; queued_count: number }>(
+    `/api/screenings/${encodeURIComponent(screeningId)}/requirements`,
+    { method: 'PUT', body: JSON.stringify({ requirements }) },
   );
-  if (!result.screening) throw new ApiError('Screening not found.', 404);
-  return result.screening;
+}
+
+export function reviewResumeScore(
+  resumeId: string,
+  score: number,
+  note: string,
+): Promise<{ score: number; model_score: number; reviewer_note: string }> {
+  return request(`/api/resumes/${encodeURIComponent(resumeId)}/review`, {
+    method: 'PATCH',
+    body: JSON.stringify({ score, note }),
+  });
+}
+
+export async function deleteScreening(
+  screeningId: string,
+): Promise<{ deleted: boolean; screening_id: string }> {
+  return request<{ deleted: boolean; screening_id: string }>(
+    `/api/screenings/${encodeURIComponent(screeningId)}`,
+    { method: 'DELETE' },
+  );
+}
+
+export async function listScreenings(
+  skip: number,
+  limit: number,
+  search: string,
+): Promise<ScreeningListResponse> {
+  const parameters = new URLSearchParams({ skip: String(skip), limit: String(limit) });
+  if (search.trim()) parameters.set('search', search.trim());
+  return request<ScreeningListResponse>(`/api/screenings?${parameters.toString()}`);
+}
+
+export async function retryScreening(
+  screeningId: string,
+  mode: RetryMode,
+): Promise<{ queued_count: number; mode: RetryMode }> {
+  const parameters = new URLSearchParams({ mode });
+  return request<{ queued_count: number; mode: RetryMode }>(
+    `/api/screenings/${encodeURIComponent(screeningId)}/retry?${parameters.toString()}`,
+    { method: 'POST' },
+  );
+}
+
+export async function stopScreening(screeningId: string): Promise<{ stopped_count: number }> {
+  return request<{ stopped_count: number }>(
+    `/api/screenings/${encodeURIComponent(screeningId)}/stop`,
+    { method: 'POST' },
+  );
 }
 
 export async function createScreening({
-  resumes,
+  name,
   jobFile,
   jobText,
+  criteria,
 }: ScreeningCreateInput): Promise<ScreeningApiRecord> {
   const formData = new FormData();
+  formData.append('screening_name', name);
   formData.append('job_description_text', jobText);
+  formData.append('evaluation_criteria', JSON.stringify(criteria));
   if (jobFile instanceof File) formData.append('job_description_file', jobFile);
-  resumes.forEach((resume) => {
-    if (resume.file) formData.append('resumes', resume.file);
-  });
   return request<ScreeningApiRecord>('/api/screenings', { method: 'POST', body: formData });
+}
+
+export async function uploadResumeBatch(
+  screeningId: string,
+  resumes: File[],
+): Promise<ScreeningApiRecord> {
+  const formData = new FormData();
+  resumes.forEach((resume) => formData.append('resumes', resume));
+  return request<ScreeningApiRecord>(`/api/screenings/${encodeURIComponent(screeningId)}/resumes`, {
+    method: 'POST',
+    body: formData,
+  });
 }
 
 export async function deleteResumes(
   resumeIds: string[],
 ): Promise<{ deleted_count: number; deleted_ids: string[] }> {
-  const result = await graphQLRequest<{
-    delete_resumes: { deleted_count: number; deleted_ids: string[] };
-  }>(
-    `mutation DeleteResumes($ids: [ID!]!) {
-      delete_resumes(ids: $ids) {
-        deleted_count: deletedCount
-        deleted_ids: deletedIds
-      }
-    }`,
-    { ids: resumeIds },
-  );
-  return result.delete_resumes;
+  return request<{ deleted_count: number; deleted_ids: string[] }>('/api/resumes/bulk-delete', {
+    method: 'POST',
+    body: JSON.stringify({ resume_ids: resumeIds }),
+  });
 }

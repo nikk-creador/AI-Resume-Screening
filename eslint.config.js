@@ -1,5 +1,7 @@
 import antfu from '@antfu/eslint-config';
 import css from '@eslint/css';
+import pluginQuery from '@tanstack/eslint-plugin-query';
+import simpleImportSort from 'eslint-plugin-simple-import-sort';
 
 const noComments = {
   meta: {
@@ -88,8 +90,19 @@ const antfuConfig = antfu(
     rules: {
       'local/no-comments': 'error',
       'no-restricted-syntax': ['error', ...restrictedColorSyntax],
+      'no-else-return': 'error',
+      'prefer-destructuring': ['error', { array: false, object: true }],
+      'prefer-template': 'error',
       'ts/ban-ts-comment': 'error',
       'ts/consistent-type-imports': ['error', { prefer: 'type-imports' }],
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        {
+          argsIgnorePattern: '^_',
+          caughtErrors: 'none',
+          varsIgnorePattern: '^_',
+        },
+      ],
     },
   },
   {
@@ -105,6 +118,29 @@ const antfuRuleNames = new Set(
 
 export default [
   ...resolvedAntfuConfig,
+  {
+    files: ['src/**/*.{ts,tsx}'],
+    plugins: {
+      '@tanstack/query': pluginQuery,
+      'simple-import-sort': simpleImportSort,
+    },
+    rules: {
+      ...pluginQuery.configs.recommended.rules,
+      'perfectionist/sort-imports': 'off',
+      'simple-import-sort/imports': [
+        'error',
+        {
+          groups: [
+            ['^react$', '^\\w'],
+            ['^@', '^(@internal|@custom|@mylib)(/.*|$)'],
+            ['^\\.\\./?$', '^\\./(?=.*/)(?!/?$)', '^\\.(?!/?$)', '^\\./?$', '^\\.\\.(?!/?$)'],
+          ],
+        },
+      ],
+      'simple-import-sort/exports': 'error',
+      'no-console': 'error',
+    },
+  },
   {
     ...css.configs.recommended,
     files: ['src/**/*.css'],
