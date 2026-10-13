@@ -1248,37 +1248,6 @@ section.section-card.results-card {
   opacity: 0.55;
   pointer-events: none;
 }
-.demo-account {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-top: 20px;
-  padding: 13px 14px;
-  border: 1px solid var(--color-notice-border);
-  border-radius: 9px;
-  background: var(--color-notice-background);
-  color: var(--color-notice-title);
-}
-.demo-account > div {
-  display: grid;
-  gap: 3px;
-}
-.demo-account .ant-typography {
-  margin: 0;
-  color: var(--color-notice-title);
-  font-size: 12px;
-}
-.demo-account .ant-typography + .ant-typography {
-  color: var(--color-notice-description);
-}
-.demo-account .ant-btn {
-  flex: none;
-  border-color: var(--color-notice-border);
-  border-radius: 7px;
-  color: var(--color-notice-title);
-  font-size: 12px;
-}
 .auth-security-note {
   display: flex;
   align-items: center;
@@ -1635,13 +1604,6 @@ section.section-card.results-card {
   .auth-footer {
     margin-top: 12px;
   }
-  .demo-account {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-  .demo-account .ant-btn {
-    width: 100%;
-  }
 }
 
 @media (max-height: 620px) and (max-width: 700px) {
@@ -1664,10 +1626,6 @@ section.section-card.results-card {
   }
   .auth-card .ant-form-item {
     margin-bottom: 10px;
-  }
-  .demo-account {
-    margin-top: 12px;
-    padding: 9px 11px;
   }
   .auth-security-note {
     margin-top: 10px;
@@ -2023,20 +1981,6 @@ section.section-card.results-card {
   border-radius: 11px;
   font-size: 15px;
 }
-.demo-account {
-  justify-content: center;
-  gap: 4px;
-  margin-top: 15px;
-  padding: 0;
-  border: 0;
-  background: var(--color-transparent);
-}
-.demo-account .ant-typography {
-  font-size: 13px;
-}
-.demo-account .ant-btn {
-  font-size: 13px;
-}
 .auth-security-note {
   margin-top: 12px;
   font-size: 12px;
@@ -2155,9 +2099,6 @@ section.section-card.results-card {
   }
   .auth-submit.ant-btn {
     height: 39px;
-  }
-  .demo-account {
-    margin-top: 9px;
   }
   .auth-security-note {
     display: none;

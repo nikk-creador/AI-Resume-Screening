@@ -2,6 +2,7 @@ from datetime import datetime, timedelta, timezone
 from html import escape
 import hashlib
 import os
+import secrets
 from pathlib import Path
 from uuid import uuid4
 
@@ -25,7 +26,10 @@ PASSWORD_RESET_EMAIL_TEMPLATE = Path(__file__).resolve().parent / "templates" / 
 PASSWORD_HASHER = PasswordHash.recommended()
 _DUMMY_PASSWORD_HASH = PASSWORD_HASHER.hash("not-a-valid-user-password")
 APP_ENV = os.getenv("APP_ENV", "development").strip().lower()
-AUTH_SECRET_KEY = os.getenv("AUTH_SECRET_KEY", "recruitai-local-development-secret-change-before-deployment")
+_configured_auth_secret = os.getenv("AUTH_SECRET_KEY")
+if APP_ENV == "production" and not _configured_auth_secret:
+    raise RuntimeError("Set AUTH_SECRET_KEY to a unique secret in production.")
+AUTH_SECRET_KEY = _configured_auth_secret or secrets.token_urlsafe(32)
 GOOGLE_CLIENT_ID = os.getenv(
     "GOOGLE_CLIENT_ID",
     os.getenv(
@@ -33,8 +37,6 @@ GOOGLE_CLIENT_ID = os.getenv(
         os.getenv("CLIENT_ID", "443288765564-ileiomf2qvgvl8t0renuqbtnsjuhnvdf.apps.googleusercontent.com"),
     ),
 ).strip()
-if APP_ENV == "production" and AUTH_SECRET_KEY == "recruitai-local-development-secret-change-before-deployment":
-    raise RuntimeError("Set AUTH_SECRET_KEY to a unique secret in production.")
 if APP_ENV == "production" and (
     AUTH_SECRET_KEY.startswith("replace-with-") or len(AUTH_SECRET_KEY) < 32
 ):
@@ -183,10 +185,16 @@ def get_optional_current_user(
 
 
 def seed_demo_user(db: Session) -> None:
-    if APP_ENV == "production" or os.getenv("SEED_DEMO_USER", "true").lower() not in {"1", "true", "yes"}:
+    if APP_ENV == "production" or os.getenv("SEED_DEMO_USER", "false").lower() not in {
+        "1",
+        "true",
+        "yes",
+    }:
         return
     email = normalize_email(os.getenv("DEMO_USER_EMAIL", "demo@recruitai.local"))
-    password = os.getenv("DEMO_USER_PASSWORD", "RecruitAI-Demo-2026!")
+    password = os.getenv("DEMO_USER_PASSWORD", "")
+    if not password:
+        raise RuntimeError("Set DEMO_USER_PASSWORD when SEED_DEMO_USER is enabled.")
     user = db.scalar(select(User).where(User.email == email))
     if user is None:
         user = User(

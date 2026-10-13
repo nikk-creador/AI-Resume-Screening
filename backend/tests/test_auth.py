@@ -10,7 +10,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from backend.app.database import Base
-from backend.app.auth import authenticate_user, hash_password
+from backend.app.auth import authenticate_user, hash_password, seed_demo_user
 from backend.app.auth import send_auth_email
 from backend.app.main import (
     EmailActionRequest,
@@ -44,8 +44,8 @@ class GoogleSignInTests(unittest.TestCase):
         with patch.dict(
             "os.environ",
             {
-                "SENDGRID_API_KEY": "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",
-                "SENDGRID_FROM_EMAIL": "nbnik17@gmail.com",
+                "SENDGRID_API_KEY": "test-sendgrid-key",
+                "SENDGRID_FROM_EMAIL": "sender@example.test",
             },
         ), patch("backend.app.auth.SendGridAPIClient") as client_factory:
             client_factory.return_value.send.return_value.status_code = 202
@@ -58,7 +58,7 @@ class GoogleSignInTests(unittest.TestCase):
             message = client_factory.return_value.send.call_args.args[0].get()
 
         self.assertTrue(sent)
-        self.assertEqual(message["from"]["email"], "nbnik17@gmail.com")
+        self.assertEqual(message["from"]["email"], "sender@example.test")
         self.assertEqual(message["personalizations"][0]["to"][0]["email"], "recruiter@example.com")
         self.assertEqual(message["content"][1]["type"], "text/html")
         self.assertEqual(message["content"][1]["value"].count(action_url), 3)
@@ -95,6 +95,35 @@ class GoogleSignInTests(unittest.TestCase):
                 )
 
         self.assertEqual(error.exception.status_code, 401)
+
+
+class DemoUserSeedingTests(unittest.TestCase):
+    def setUp(self):
+        self.engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(self.engine)
+
+    def tearDown(self):
+        self.engine.dispose()
+
+    def test_demo_seed_requires_an_explicit_password(self):
+        with patch.dict(os.environ, {"SEED_DEMO_USER": "true", "DEMO_USER_PASSWORD": ""}):
+            with Session(self.engine) as db, self.assertRaisesRegex(
+                RuntimeError, "DEMO_USER_PASSWORD"
+            ):
+                seed_demo_user(db)
+
+    def test_demo_seed_uses_explicit_local_credentials(self):
+        password = "unit-test-password"
+        with patch.dict(
+            os.environ,
+            {
+                "SEED_DEMO_USER": "true",
+                "DEMO_USER_EMAIL": "demo@example.test",
+                "DEMO_USER_PASSWORD": password,
+            },
+        ), Session(self.engine) as db:
+            seed_demo_user(db)
+            self.assertIsNotNone(authenticate_user(db, "demo@example.test", password))
 
 
 class AccountLifecycleTests(unittest.TestCase):

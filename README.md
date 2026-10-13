@@ -66,12 +66,7 @@ The worker stores criterion scores and verified evidence excerpts, not extracted
 
 Use **AI service** in the signed-in workspace to send a small test prompt to the configured model and inspect the latest evaluation statuses and errors for your own screenings. The activity view does not expose resume text or prompts.
 
-Copy `.env.example` to `.env` before starting the backend. On first startup, a local demo user is created unless `SEED_DEMO_USER=false`:
-
-- Email: `demo@recruitai.local`
-- Password: `RecruitAI-Demo-2026!`
-
-The frontend shows these demo credentials only during local development. Demo user seeding is disabled when `APP_ENV=production`. Set a unique `AUTH_SECRET_KEY` and the deployed frontend origins in `CORS_ORIGINS` before deployment. Set a strong `DEMO_USER_PASSWORD` if demo seeding is intentionally enabled outside local development.
+Copy `.env.example` to `.env` before starting the backend. Demo-user seeding is disabled by default; to enable it for local development, set `SEED_DEMO_USER=true` and choose a strong `DEMO_USER_PASSWORD` in the private `.env` file. Never commit demo credentials. Set a unique `AUTH_SECRET_KEY` and the deployed frontend origins in `CORS_ORIGINS` before deployment.
 
 Sign-in uses an HTTP-only, eight-hour session cookie. Screenings and resume downloads are scoped to the signed-in account. Open both the frontend and backend with the same local hostname (`127.0.0.1`) so the browser sends the session cookie.
 

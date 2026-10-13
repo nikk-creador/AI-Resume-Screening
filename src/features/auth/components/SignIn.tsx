@@ -16,8 +16,6 @@ import { routes } from '../../../routes/paths';
 import type { AuthActionResponse } from '../../../services/authApi';
 
 const { Paragraph, Text, Title } = Typography;
-const DEMO_EMAIL = import.meta.env.VITE_DEMO_EMAIL || 'demo@recruitai.local';
-const DEMO_PASSWORD = import.meta.env.VITE_DEMO_PASSWORD || 'RecruitAI-Demo-2026!';
 
 interface SignInProps {
   mode: AuthMode;
@@ -101,12 +99,6 @@ export default function SignIn({
         submitError instanceof Error ? submitError.message : 'Could not sign in. Try again.',
       );
     }
-  };
-
-  const fillDemoAccount = () => {
-    form.setFieldsValue({ email: DEMO_EMAIL, password: DEMO_PASSWORD });
-    setSubmitError('');
-    onClearError();
   };
 
   const clearSignInError = () => {
@@ -579,14 +571,6 @@ export default function SignIn({
                     onError={() => setSubmitError('Could not sign in with Google. Try again.')}
                   />
                 </div>
-              </div>
-            )}
-            {mode === 'signin' && import.meta.env.DEV && (
-              <div className="demo-account">
-                <Text>Just exploring?</Text>
-                <Button type="link" onClick={fillDemoAccount} disabled={busy}>
-                  Try the demo account
-                </Button>
               </div>
             )}
             <div className="auth-security-note">
