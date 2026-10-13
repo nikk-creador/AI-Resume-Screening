@@ -23,7 +23,8 @@ export interface CriterionAssessment {
   required: boolean;
   score: number;
   evidence: string[];
-  requirement_type?: 'skill' | 'experience' | 'education' | 'responsibility' | 'certification' | 'other';
+  requirement_type?:
+    'skill' | 'experience' | 'education' | 'responsibility' | 'certification' | 'other';
   priority?: number;
   exact_match?: boolean;
   keyword_score?: number;
@@ -41,7 +42,8 @@ export interface JobRequirement {
   id: string;
   text: string;
   normalized_concept: string;
-  requirement_type: 'skill' | 'experience' | 'education' | 'responsibility' | 'certification' | 'other';
+  requirement_type:
+    'skill' | 'experience' | 'education' | 'responsibility' | 'certification' | 'other';
   requirement_class: 'must_have' | 'nice_to_have';
   priority: number;
   evidence_needed: string;

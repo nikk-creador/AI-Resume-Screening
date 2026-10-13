@@ -18,9 +18,10 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 
 import { queryKeys } from '../../../services/api/queryKeys';
 import type { AITestResponse } from '../../../services/screeningApi';
-import { getErrorMessage, testAIService } from '../../../services/screeningApi';
+import { testAIService } from '../../../services/screeningApi';
 import { COLORS } from '../../../theme/colors';
 import type { JobRequirement, ResumeRow, ScreeningListItem } from '../../../types/screening';
+import { getErrorMessage } from '../../../utils/errors';
 import { useAllScreenings } from '../hooks/useScreenings';
 
 const { Paragraph, Text, Title } = Typography;
@@ -118,7 +119,7 @@ export default function AIServicePanel({
 
   const removeScreeningFromList = async (id: string) => {
     if (await onDeleteScreening(id)) {
-      await queryClient.invalidateQueries({ queryKey: queryKeys.screenings.all });
+      await queryClient.invalidateQueries({ queryKey: queryKeys.screenings.all() });
     }
   };
 

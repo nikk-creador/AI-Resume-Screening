@@ -1,4 +1,4 @@
-import { useEffect, useEffectEvent, useReducer, useRef, useState } from 'react';
+import { lazy, useEffect, useEffectEvent, useReducer, useRef, useState } from 'react';
 import { Alert, Col, Input, message, Row, Typography, Upload } from 'antd';
 import type { Key } from 'react';
 import { matchPath, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
@@ -13,12 +13,9 @@ import {
   RESUME_UPLOAD_BATCH_SIZE,
   SCREENING_STORAGE_KEY,
 } from '../constants/screening';
-import AIServicePanel from '../features/screening/components/AIServicePanel';
-import CandidateResults from '../features/screening/components/CandidateResults';
 import JobDescriptionInput from '../features/screening/components/JobDescriptionInput';
 import ResumeUploader from '../features/screening/components/ResumeUploader';
 import ScreeningCriteriaEditor from '../features/screening/components/ScreeningCriteriaEditor';
-import ScreeningsList from '../features/screening/components/ScreeningsList';
 import ScreeningSummary from '../features/screening/components/ScreeningSummary';
 import { useScreeningActions, useScreeningDetail } from '../features/screening/hooks/useScreenings';
 import {
@@ -32,13 +29,17 @@ import {
 } from '../services/api/client';
 import { queryKeys } from '../services/api/queryKeys';
 import { listCompanies } from '../services/organizationApi';
-import { ApiError, getErrorMessage, loadScreening } from '../services/screeningApi';
+import { ApiError, loadScreening } from '../services/screeningApi';
 import type { AuthUser } from '../types/auth';
 import type { CompanyAccess } from '../types/organization';
 import type { ResumeRow, RetryMode, ScreeningApiRecord, ScreeningState } from '../types/screening';
+import { getErrorMessage } from '../utils/errors';
 import { getExtension, validateJobDescription, validateResume } from '../utils/screeningValidation';
 
 const { Paragraph, Text, Title } = Typography;
+const AIServicePanel = lazy(() => import('../features/screening/components/AIServicePanel'));
+const CandidateResults = lazy(() => import('../features/screening/components/CandidateResults'));
+const ScreeningsList = lazy(() => import('../features/screening/components/ScreeningsList'));
 
 function localResume(file: File): ResumeRow {
   return {
@@ -124,7 +125,7 @@ export default function WorkspaceLayout({
   const [pageError, setPageError] = useState('');
   const [messageApi, contextHolder] = message.useMessage();
   const clearCompanyWorkspace = () => {
-    queryClient.removeQueries({ queryKey: ['screenings'] });
+    queryClient.removeQueries({ queryKey: queryKeys.screenings.root });
     window.localStorage.removeItem(SCREENING_STORAGE_KEY);
     dispatchDraft({ type: 'reset' });
   };
@@ -138,7 +139,7 @@ export default function WorkspaceLayout({
     navigate(routes.screenings);
   };
   const addCreatedCompany = (company: CompanyAccess) => {
-    queryClient.setQueryData<AuthUser | null>(['auth', 'current-user'], (currentUser) =>
+    queryClient.setQueryData<AuthUser | null>(queryKeys.auth.currentUser, (currentUser) =>
       currentUser
         ? {
             ...currentUser,
@@ -154,7 +155,7 @@ export default function WorkspaceLayout({
   const handleCompanyArchived = (companyId: string) => {
     const remainingCompanies = companies.filter((company) => company.id !== companyId);
     const nextCompany = remainingCompanies[0];
-    queryClient.setQueryData<AuthUser | null>(['auth', 'current-user'], (currentUser) =>
+    queryClient.setQueryData<AuthUser | null>(queryKeys.auth.currentUser, (currentUser) =>
       currentUser ? { ...currentUser, companies: remainingCompanies } : currentUser,
     );
     persistActiveCompanyId(nextCompany?.id ?? null);
@@ -164,17 +165,17 @@ export default function WorkspaceLayout({
   };
   const refreshCompanyMemberships = async () => {
     const result = await listCompanies();
-    queryClient.setQueryData<AuthUser | null>(['auth', 'current-user'], (currentUser) =>
+    queryClient.setQueryData<AuthUser | null>(queryKeys.auth.currentUser, (currentUser) =>
       currentUser ? { ...currentUser, companies: result.companies } : currentUser,
     );
   };
   useEffect(() => {
     const handleActiveCompanyChange = (event: Event) => {
       const companyId = (event as CustomEvent<string | null>).detail;
-      const currentUser = queryClient.getQueryData<AuthUser | null>(['auth', 'current-user']);
+      const currentUser = queryClient.getQueryData<AuthUser | null>(queryKeys.auth.currentUser);
       if (!companyId || !currentUser?.companies.some((company) => company.id === companyId)) return;
       setActiveCompanyId(companyId);
-      queryClient.removeQueries({ queryKey: ['screenings'] });
+      queryClient.removeQueries({ queryKey: queryKeys.screenings.root });
       window.localStorage.removeItem(SCREENING_STORAGE_KEY);
       dispatchDraft({ type: 'reset' });
       navigate(routes.screenings);
@@ -190,7 +191,6 @@ export default function WorkspaceLayout({
     queryClient.fetchQuery({
       queryKey: queryKeys.screenings.detail(id),
       queryFn: () => loadScreening(id),
-      staleTime: 0,
     });
 
   const updateResumes = (next: ResumeRow[]) => {
@@ -216,13 +216,14 @@ export default function WorkspaceLayout({
       }
       if (!data) return;
 
+      const savedScreening = normalizeScreening(data);
       const pendingResumes = resumesRef.current.filter(
         (resume) => resume.id === null && resume.file,
       );
-      resumesRef.current = [...normalizeScreening(data).resumes, ...pendingResumes];
+      resumesRef.current = [...savedScreening.resumes, ...pendingResumes];
       dispatchDraft({
         type: 'hydrate',
-        screening: normalizeScreening(data),
+        screening: savedScreening,
         pendingResumes,
       });
     },
@@ -239,7 +240,7 @@ export default function WorkspaceLayout({
     const handleCompanyAccessDenied = (event: Event) => {
       const deniedCompanyId = (event as CustomEvent<string | null>).detail;
       if (!deniedCompanyId || deniedCompanyId !== activeCompanyId) return;
-      queryClient.removeQueries({ queryKey: ['screenings'] });
+      queryClient.removeQueries({ queryKey: queryKeys.screenings.root });
       window.localStorage.removeItem(SCREENING_STORAGE_KEY);
       dispatchDraft({ type: 'reset' });
       setPageError('Your access to this company changed. Switch to another available company.');
@@ -247,7 +248,7 @@ export default function WorkspaceLayout({
     const handleCompanyViewDenied = (event: Event) => {
       const deniedCompanyId = (event as CustomEvent<string | null>).detail;
       if (!deniedCompanyId || deniedCompanyId !== activeCompanyId) return;
-      queryClient.removeQueries({ queryKey: ['screenings'] });
+      queryClient.removeQueries({ queryKey: queryKeys.screenings.root });
       window.localStorage.removeItem(SCREENING_STORAGE_KEY);
       dispatchDraft({ type: 'reset' });
       setPageError('Your screening view permission was removed. Contact a company administrator.');
@@ -472,7 +473,9 @@ export default function WorkspaceLayout({
     setDeleting(true);
     setPageError('');
     try {
-      if (storedIds.length) await screeningActions.deleteResumes(storedIds);
+      if (storedIds.length) {
+        await screeningActions.deleteResumes({ screeningId, resumeIds: storedIds });
+      }
       const targetKeys = new Set(targets.map((resume) => resume.key));
       const remaining = resumesRef.current.filter((resume) => !targetKeys.has(resume.key));
       updateResumes(remaining);
@@ -713,7 +716,7 @@ export default function WorkspaceLayout({
                 onStop={stopCurrentScreening}
                 onReview={async (resumeId, score, note) => {
                   try {
-                    await screeningActions.review({ resumeId, score, note });
+                    await screeningActions.review({ resumeId, score, note, screeningId });
                     if (screeningId) {
                       const saved = normalizeScreening(await fetchScreening(screeningId));
                       updateResumes(saved.resumes);

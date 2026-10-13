@@ -13,7 +13,7 @@ import {
   signOut,
 } from '../services/authApi';
 
-const currentUserKey = ['auth', 'current-user'] as const;
+const currentUserKey = queryKeys.auth.currentUser;
 
 export function useCurrentUser() {
   return useQuery({
@@ -47,7 +47,9 @@ export function useSignOut() {
     mutationFn: signOut,
     onSuccess: () => {
       queryClient.setQueryData(currentUserKey, null);
-      queryClient.removeQueries({ queryKey: queryKeys.screenings.all });
+      queryClient.removeQueries({ queryKey: queryKeys.screenings.root });
+      queryClient.removeQueries({ queryKey: queryKeys.organization.root });
+      queryClient.removeQueries({ queryKey: queryKeys.invitations.root });
     },
   });
 }

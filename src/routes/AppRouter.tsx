@@ -1,14 +1,15 @@
+import { lazy, Suspense } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 
 import NotFoundPage from './NotFoundPage';
 import { routes } from './paths';
 import RequireAuth from './RequireAuth';
-import WorkspaceLayout from './WorkspaceLayout';
 import type { AuthMode } from '../features/auth/components/SignIn';
 import SignIn from '../features/auth/components/SignIn';
 import AcceptInvitationPage from '../features/organization/components/AcceptInvitationPage';
 import type { AuthActionResponse } from '../services/authApi';
 import type { AuthUser } from '../types/auth';
+const WorkspaceLayout = lazy(() => import('./WorkspaceLayout'));
 
 interface AppRouterProps {
   user: AuthUser | null;
@@ -78,7 +79,17 @@ export default function AppRouter({
         {user && (
           <Route
             path="*"
-            element={<WorkspaceLayout key={user.id} user={user} onSignOut={onSignOut} />}
+            element={
+              <Suspense
+                fallback={
+                  <main className="auth-loading" aria-busy="true" aria-label="Loading workspace">
+                    <span className="brand-mark">R</span>
+                  </main>
+                }
+              >
+                <WorkspaceLayout key={user.id} user={user} onSignOut={onSignOut} />
+              </Suspense>
+            }
           />
         )}
       </Route>

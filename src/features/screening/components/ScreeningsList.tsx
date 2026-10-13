@@ -6,8 +6,9 @@ import { DeleteOutlined, EditOutlined } from '@ant-design/icons';
 import { useQueryClient } from '@tanstack/react-query';
 
 import { queryKeys } from '../../../services/api/queryKeys';
-import { getErrorMessage, loadScreening } from '../../../services/screeningApi';
+import { loadScreening } from '../../../services/screeningApi';
 import type { ScreeningApiRecord, ScreeningListItem } from '../../../types/screening';
+import { getErrorMessage } from '../../../utils/errors';
 import { formatLocalDateTime, getWordCount } from '../../../utils/screeningValidation';
 import { useScreeningMutations, useScreenings } from '../hooks/useScreenings';
 

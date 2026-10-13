@@ -12,7 +12,7 @@ import {
 } from './hooks/useAuth';
 import AppRouter from './routes/AppRouter';
 import type { AuthActionResponse } from './services/authApi';
-import { getErrorMessage } from './services/screeningApi';
+import { getErrorMessage } from './utils/errors';
 
 export default function App() {
   const currentUser = useCurrentUser();

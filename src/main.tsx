@@ -1,7 +1,6 @@
 import React from 'react';
 import { ConfigProvider } from 'antd';
 import ReactDOM from 'react-dom/client';
-import { Provider } from 'react-redux';
 import { BrowserRouter } from 'react-router-dom';
 
 import { GoogleOAuthProvider } from '@react-oauth/google';
@@ -10,7 +9,6 @@ import { QueryClientProvider } from '@tanstack/react-query';
 import { queryClient } from './lib/queryClient';
 import { COLORS } from './theme/colors';
 import App from './App';
-import { store } from './store';
 
 import '@fontsource-variable/dm-sans/wght.css';
 import '@fontsource-variable/space-grotesk/wght.css';
@@ -32,24 +30,22 @@ ReactDOM.createRoot(rootElement).render(
         '443288765564-ileiomf2qvgvl8t0renuqbtnsjuhnvdf.apps.googleusercontent.com'
       }
     >
-      <Provider store={store}>
-        <QueryClientProvider client={queryClient}>
-          <BrowserRouter>
-            <ConfigProvider
-              theme={{
-                token: {
-                  colorPrimary: COLORS.primary,
-                  borderRadius: 8,
-                  fontFamily:
-                    'Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
-                },
-              }}
-            >
-              <App />
-            </ConfigProvider>
-          </BrowserRouter>
-        </QueryClientProvider>
-      </Provider>
+      <QueryClientProvider client={queryClient}>
+        <BrowserRouter>
+          <ConfigProvider
+            theme={{
+              token: {
+                colorPrimary: COLORS.primary,
+                borderRadius: 8,
+                fontFamily:
+                  'Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+              },
+            }}
+          >
+            <App />
+          </ConfigProvider>
+        </BrowserRouter>
+      </QueryClientProvider>
     </GoogleOAuthProvider>
   </React.StrictMode>,
 );

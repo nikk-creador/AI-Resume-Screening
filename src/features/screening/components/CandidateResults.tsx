@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   Alert,
   Button,
@@ -20,8 +20,8 @@ import type { ColumnsType } from 'antd/es/table';
 import { ReloadOutlined, StopOutlined } from '@ant-design/icons';
 
 import { downloadApiFile } from '../../../services/api/client';
-import { getErrorMessage } from '../../../services/screeningApi';
 import type { CandidateRow, ResumeRow, RetryMode } from '../../../types/screening';
+import { getErrorMessage } from '../../../utils/errors';
 import {
   displayName,
   formatFileSize,
@@ -29,6 +29,15 @@ import {
 } from '../../../utils/screeningValidation';
 
 const { Text, Title } = Typography;
+
+function getKeyedEvidence(criterionId: string, evidence: string[]) {
+  const occurrences = new Map<string, number>();
+  return evidence.map((quote) => {
+    const occurrence = occurrences.get(quote) ?? 0;
+    occurrences.set(quote, occurrence + 1);
+    return { key: JSON.stringify([criterionId, quote, occurrence]), quote };
+  });
+}
 
 interface CandidateResultsProps {
   resumes: ResumeRow[];
@@ -87,42 +96,53 @@ export default function CandidateResults({
   const [reviewNote, setReviewNote] = useState('');
   const [savingReview, setSavingReview] = useState(false);
   const [messageApi, contextHolder] = message.useMessage();
-  const filteredResumes = resumes.filter(
-    (resume) => !query.trim() || resume.name.toLowerCase().includes(query.trim().toLowerCase()),
-  );
-  const rankedResumes = resumes
-    .filter((resume) => resume.evaluation?.status === 'completed')
-    .sort((a, b) => (b.evaluation?.score ?? -1) - (a.evaluation?.score ?? -1));
-  const ranks = new Map<string, number>();
-  let previousScore: number | null = null;
-  let currentRank = 0;
-  rankedResumes.forEach((resume, index) => {
-    const score = resume.evaluation?.score ?? -1;
-    if (score !== previousScore) currentRank = index + 1;
-    ranks.set(resume.key, currentRank);
-    previousScore = score;
-  });
-  const rows = filteredResumes
-    .map((resume) => ({
-      ...resume,
-      candidate: displayName(resume.name),
-      rank: ranks.get(resume.key) ?? null,
-    }))
-    .sort((a, b) => {
-      if (a.rank !== null && b.rank !== null) return a.rank - b.rank;
-      if (a.rank !== null) return -1;
-      if (b.rank !== null) return 1;
-      return a.candidate.localeCompare(b.candidate);
+  const filteredResumes = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase();
+    return resumes.filter(
+      (resume) => !normalizedQuery || resume.name.toLowerCase().includes(normalizedQuery),
+    );
+  }, [query, resumes]);
+  const { ranks, completedCount, activeCount, failedCount, stoppedCount } = useMemo(() => {
+    const rankedResumes = resumes
+      .filter((resume) => resume.evaluation?.status === 'completed')
+      .sort((first, second) => (second.evaluation?.score ?? -1) - (first.evaluation?.score ?? -1));
+    const ranks = new Map<string, number>();
+    let previousScore: number | null = null;
+    let currentRank = 0;
+    rankedResumes.forEach((resume, index) => {
+      const score = resume.evaluation?.score ?? -1;
+      if (score !== previousScore) currentRank = index + 1;
+      ranks.set(resume.key, currentRank);
+      previousScore = score;
     });
-  const completedCount = resumes.filter(
-    (resume) => resume.evaluation?.status === 'completed',
-  ).length;
-  const activeCount = resumes.filter(
-    (resume) =>
-      resume.evaluation?.status === 'queued' || resume.evaluation?.status === 'processing',
-  ).length;
-  const failedCount = resumes.filter((resume) => resume.evaluation?.status === 'failed').length;
-  const stoppedCount = resumes.filter((resume) => resume.evaluation?.status === 'stopped').length;
+
+    return {
+      ranks,
+      completedCount: resumes.filter((resume) => resume.evaluation?.status === 'completed').length,
+      activeCount: resumes.filter(
+        (resume) =>
+          resume.evaluation?.status === 'queued' || resume.evaluation?.status === 'processing',
+      ).length,
+      failedCount: resumes.filter((resume) => resume.evaluation?.status === 'failed').length,
+      stoppedCount: resumes.filter((resume) => resume.evaluation?.status === 'stopped').length,
+    };
+  }, [resumes]);
+  const rows = useMemo(
+    () =>
+      filteredResumes
+        .map((resume) => ({
+          ...resume,
+          candidate: displayName(resume.name),
+          rank: ranks.get(resume.key) ?? null,
+        }))
+        .sort((first, second) => {
+          if (first.rank !== null && second.rank !== null) return first.rank - second.rank;
+          if (first.rank !== null) return -1;
+          if (second.rank !== null) return 1;
+          return first.candidate.localeCompare(second.candidate);
+        }),
+    [filteredResumes, ranks],
+  );
   const retryableCount = failedCount + stoppedCount;
   const downloadResume = async (resumeId: string, filename: string) => {
     try {
@@ -238,7 +258,8 @@ export default function CandidateResults({
                       {scoreLabel(matchingDetails?.nice_to_have_score)}
                     </Descriptions.Item>
                     <Descriptions.Item label="Preferred score / bonus">
-                      {scoreLabel(evaluation.preferred_score)} · {evaluation.bonus_points ?? 0} points
+                      {scoreLabel(evaluation.preferred_score)} · {evaluation.bonus_points ?? 0}{' '}
+                      points
                     </Descriptions.Item>
                     <Descriptions.Item label="Keyword match">
                       {scoreLabel(matchingDetails?.keyword_score)}
@@ -264,9 +285,7 @@ export default function CandidateResults({
                   </Descriptions>
                   {evaluation.reviewer_override_score !== null &&
                     evaluation.reviewer_override_score !== undefined && (
-                      <Text>
-                        Recruiter review score: {evaluation.reviewer_override_score}/100
-                      </Text>
+                      <Text>Recruiter review score: {evaluation.reviewer_override_score}/100</Text>
                     )}
                   {evaluation.reviewer_override_note && (
                     <Text type="secondary">Review note: {evaluation.reviewer_override_note}</Text>
@@ -305,8 +324,15 @@ export default function CandidateResults({
                       <Text type="secondary">
                         Cosine: {scoreLabel(assessment.cosine_similarity, '')}
                         {' · '}Reranker: {scoreLabel(assessment.reranker_score)}
-                        {' · '}Experience: {assessment.experience_match === null || assessment.experience_match === undefined ? 'Not available' : assessment.experience_match ? 'Met' : 'Not met'}
-                        {assessment.experience_score !== null && assessment.experience_score !== undefined
+                        {' · '}Experience:{' '}
+                        {assessment.experience_match === null ||
+                        assessment.experience_match === undefined
+                          ? 'Not available'
+                          : assessment.experience_match
+                            ? 'Met'
+                            : 'Not met'}
+                        {assessment.experience_score !== null &&
+                        assessment.experience_score !== undefined
                           ? ` (${assessment.experience_score}/100)`
                           : ''}
                       </Text>
@@ -314,11 +340,11 @@ export default function CandidateResults({
                         Qualification: {scoreLabel(assessment.qualification_score)}
                         {' · '}Evidence strength: {assessment.evidence_strength ?? 'Not available'}
                       </Text>
-                      {(assessment.evidence || []).map((quote, quoteIndex) => (
-                        <Text key={`${assessment.criterion_id}-evidence-${quoteIndex}`}>
-                          Evidence: “{quote}”
-                        </Text>
-                      ))}
+                      {getKeyedEvidence(assessment.criterion_id, assessment.evidence || []).map(
+                        ({ key, quote }) => (
+                          <Text key={key}>Evidence: “{quote}”</Text>
+                        ),
+                      )}
                     </div>
                   ))}
                 </div>
@@ -365,7 +391,9 @@ export default function CandidateResults({
             <Button
               type="link"
               size="small"
-              onClick={() => void downloadResume(resume.id!, resume.name)}
+              onClick={() => {
+                if (resume.id) void downloadResume(resume.id, resume.name);
+              }}
             >
               Download
             </Button>

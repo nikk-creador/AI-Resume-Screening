@@ -19,6 +19,7 @@ import type { ColumnsType } from 'antd/es/table';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
+import { queryKeys } from '../../../services/api/queryKeys';
 import {
   archiveCompany,
   createCompany,
@@ -34,7 +35,6 @@ import {
   revokeCompanyMember,
   updateCompanyMember,
 } from '../../../services/organizationApi';
-import { getErrorMessage } from '../../../services/screeningApi';
 import type {
   CompanyAccess,
   CompanyAuditEvent,
@@ -42,6 +42,7 @@ import type {
   CompanyMember,
   CompanyPermissions,
 } from '../../../types/organization';
+import { getErrorMessage } from '../../../utils/errors';
 
 const { Text } = Typography;
 
@@ -72,22 +73,22 @@ export default function OrganizationManager({
   const queryClient = useQueryClient();
   const canManageMembers = activeCompany.permissions.manage_members;
   const membersQuery = useQuery({
-    queryKey: ['company-members', activeCompany.id],
+    queryKey: queryKeys.organization.members(activeCompany.id),
     queryFn: () => listCompanyMembers(activeCompany.id),
     enabled: open && canManageMembers,
   });
   const invitationsQuery = useQuery({
-    queryKey: ['company-invitations', activeCompany.id],
+    queryKey: queryKeys.organization.invitations(activeCompany.id),
     queryFn: () => listCompanyInvitations(activeCompany.id),
     enabled: open && canManageMembers,
   });
   const auditQuery = useQuery({
-    queryKey: ['company-audit', activeCompany.id],
+    queryKey: queryKeys.organization.auditLog(activeCompany.id),
     queryFn: () => listCompanyAuditLog(activeCompany.id),
     enabled: open && canManageMembers,
   });
   const organizationCompaniesQuery = useQuery({
-    queryKey: ['organization-companies', activeCompany.organization_id],
+    queryKey: queryKeys.organization.companies(activeCompany.organization_id),
     queryFn: () => listOrganizationCompanies(activeCompany.organization_id),
     enabled: open && activeCompany.organization_role === 'admin',
   });
@@ -98,8 +99,12 @@ export default function OrganizationManager({
         .map((company) => ({ ...company, is_active: true }));
   const refreshAccess = async () => {
     await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ['company-members', activeCompany.id] }),
-      queryClient.invalidateQueries({ queryKey: ['company-invitations', activeCompany.id] }),
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.organization.members(activeCompany.id),
+      }),
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.organization.invitations(activeCompany.id),
+      }),
     ]);
   };
   const inviteMutation = useMutation({
@@ -200,7 +205,7 @@ export default function OrganizationManager({
     onSuccess: async () => {
       await onCompanyRestored();
       await queryClient.invalidateQueries({
-        queryKey: ['organization-companies', activeCompany.organization_id],
+        queryKey: queryKeys.organization.companies(activeCompany.organization_id),
       });
       messageApi.success('Company restored. Its data access remains membership-based.');
     },

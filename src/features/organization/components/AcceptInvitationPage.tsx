@@ -6,9 +6,10 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { routes } from '../../../routes/paths';
 import { setActiveCompanyId } from '../../../services/api/client';
+import { queryKeys } from '../../../services/api/queryKeys';
 import { acceptInvitation, loadInvitation } from '../../../services/organizationApi';
-import { getErrorMessage } from '../../../services/screeningApi';
 import type { AuthUser } from '../../../types/auth';
+import { getErrorMessage } from '../../../utils/errors';
 
 const { Paragraph, Text, Title } = Typography;
 
@@ -26,7 +27,7 @@ export default function AcceptInvitationPage({ user }: { user: AuthUser | null }
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const invitationQuery = useQuery({
-    queryKey: ['invitation', token],
+    queryKey: queryKeys.invitations.token(token),
     queryFn: () => loadInvitation(token),
     enabled: Boolean(token),
     retry: false,
@@ -38,7 +39,7 @@ export default function AcceptInvitationPage({ user }: { user: AuthUser | null }
       const invitedCompanyId = invitationQuery.data?.company_id;
       if (!invitedCompanyId) return;
       setActiveCompanyId(invitedCompanyId);
-      queryClient.setQueryData(['auth', 'current-user'], user);
+      queryClient.setQueryData(queryKeys.auth.currentUser, user);
       window.dispatchEvent(
         new CustomEvent('recruitai:active-company-change', { detail: invitedCompanyId }),
       );

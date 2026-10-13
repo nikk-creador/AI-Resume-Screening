@@ -7,8 +7,8 @@ import {
   MIN_JOB_DESCRIPTION_WORDS,
 } from '../../../constants/screening';
 import { downloadApiFile } from '../../../services/api/client';
-import { getErrorMessage } from '../../../services/screeningApi';
 import type { JobDescriptionFile } from '../../../types/screening';
+import { getErrorMessage } from '../../../utils/errors';
 import { getWordCount } from '../../../utils/screeningValidation';
 
 const { Text, Title } = Typography;

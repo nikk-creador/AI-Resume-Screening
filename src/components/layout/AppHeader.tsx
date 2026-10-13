@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { Button, Dropdown } from 'antd';
 import type { MenuProps } from 'antd';
+import { Button, Dropdown } from 'antd';
 import { useMatch } from 'react-router-dom';
 
 import {
@@ -129,7 +129,12 @@ export default function AppHeader({
           placement="bottomRight"
           rootClassName="topbar-account-menu"
         >
-          <button type="button" className="topbar-account" aria-label="Account menu" aria-haspopup="menu">
+          <button
+            type="button"
+            className="topbar-account"
+            aria-label="Account menu"
+            aria-haspopup="menu"
+          >
             <span className="workspace-avatar" title={user.full_name} aria-hidden="true">
               {initials || 'AI'}
             </span>

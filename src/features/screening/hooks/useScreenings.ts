@@ -19,6 +19,7 @@ import type {
   EvaluationCriterion,
   JobRequirement,
   RetryMode,
+  ScreeningApiRecord,
   ScreeningCreateInput,
 } from '../../../types/screening';
 
@@ -31,7 +32,7 @@ export function useScreenings(skip: number, limit: number, search: string) {
 
 export function useAllScreenings() {
   return useQuery({
-    queryKey: [...queryKeys.screenings.all, 'all'] as const,
+    queryKey: [...queryKeys.screenings.all(), 'all'] as const,
     queryFn: async () => {
       const screenings = [];
       let skip = 0;
@@ -81,18 +82,16 @@ export function useScreeningMutations() {
       screeningId: string;
       changes: { name: string; job_description_text: string; criteria: EvaluationCriterion[] };
     }) => updateScreening(input.screeningId, input.changes),
-    onSuccess: (_result, input) => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.screenings.all });
-      void queryClient.invalidateQueries({
-        queryKey: queryKeys.screenings.detail(input.screeningId),
-      });
+    onSuccess: (screening, input) => {
+      queryClient.setQueryData(queryKeys.screenings.detail(input.screeningId), screening);
+      void queryClient.invalidateQueries({ queryKey: queryKeys.screenings.all() });
     },
   });
 
   const deleteMutation = useMutation({
     mutationFn: deleteScreening,
     onSuccess: (_result, screeningId) => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.screenings.all });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.screenings.all() });
       void queryClient.removeQueries({ queryKey: queryKeys.screenings.detail(screeningId) });
     },
   });
@@ -104,30 +103,47 @@ export function useScreeningActions() {
   const queryClient = useQueryClient();
   const invalidateScreening = (screeningId: string) => {
     void queryClient.invalidateQueries({ queryKey: queryKeys.screenings.detail(screeningId) });
-    void queryClient.invalidateQueries({ queryKey: queryKeys.screenings.all });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.screenings.all() });
   };
 
   const createMutation = useMutation({
     mutationFn: (input: ScreeningCreateInput) => createScreening(input),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.screenings.all });
+    onSuccess: (screening) => {
+      queryClient.setQueryData(queryKeys.screenings.detail(screening.id), screening);
+      void queryClient.invalidateQueries({ queryKey: queryKeys.screenings.all() });
     },
   });
   const uploadMutation = useMutation({
     mutationFn: ({ screeningId, files }: { screeningId: string; files: File[] }) =>
       uploadResumeBatch(screeningId, files),
-    onSuccess: (_result, input) => invalidateScreening(input.screeningId),
+    onSuccess: (screening, input) => {
+      queryClient.setQueryData(queryKeys.screenings.detail(input.screeningId), screening);
+      void queryClient.invalidateQueries({ queryKey: queryKeys.screenings.all() });
+    },
   });
   const deleteResumesMutation = useMutation({
-    mutationFn: deleteResumes,
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.screenings.all });
+    mutationFn: ({ resumeIds }: { screeningId: string | null; resumeIds: string[] }) =>
+      deleteResumes(resumeIds),
+    onSuccess: (_result, { screeningId, resumeIds }) => {
+      if (screeningId) {
+        queryClient.setQueryData<ScreeningApiRecord>(
+          queryKeys.screenings.detail(screeningId),
+          (screening) =>
+            screening
+              ? {
+                  ...screening,
+                  resumes: screening.resumes.filter((resume) => !resumeIds.includes(resume.id)),
+                }
+              : screening,
+        );
+      }
+      void queryClient.invalidateQueries({ queryKey: queryKeys.screenings.all() });
     },
   });
   const deleteScreeningMutation = useMutation({
     mutationFn: deleteScreening,
     onSuccess: (_result, screeningId) => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.screenings.all });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.screenings.all() });
       void queryClient.removeQueries({ queryKey: queryKeys.screenings.detail(screeningId) });
     },
   });
@@ -141,10 +157,22 @@ export function useScreeningActions() {
     onSuccess: (_result, screeningId) => invalidateScreening(screeningId),
   });
   const reviewMutation = useMutation({
-    mutationFn: ({ resumeId, score, note }: { resumeId: string; score: number; note: string }) =>
-      reviewResumeScore(resumeId, score, note),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.screenings.all });
+    mutationFn: ({
+      resumeId,
+      score,
+      note,
+    }: {
+      resumeId: string;
+      score: number;
+      note: string;
+      screeningId: string | null;
+    }) => reviewResumeScore(resumeId, score, note),
+    onSuccess: (_result, { screeningId }) => {
+      if (screeningId) {
+        invalidateScreening(screeningId);
+      } else {
+        void queryClient.invalidateQueries({ queryKey: queryKeys.screenings.all() });
+      }
     },
   });
   const requirementsMutation = useMutation({

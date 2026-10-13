@@ -8,7 +8,7 @@ import type {
   ScreeningListResponse,
 } from '../types/screening';
 
-export { ApiError } from './api/client';
+export { getErrorMessage } from '../utils/errors';
 
 export interface AITestResponse {
   ok: boolean;
@@ -34,13 +34,7 @@ export async function suggestScreeningCriteria(
   return result.criteria;
 }
 
-export function getErrorMessage(error: unknown, fallback: string): string {
-  if (error instanceof Error) return error.message;
-  if (typeof error === 'object' && error !== null && 'message' in error) {
-    return typeof error.message === 'string' ? error.message : fallback;
-  }
-  return fallback;
-}
+export { ApiError } from './api/client';
 
 export async function loadScreening(screeningId: string): Promise<ScreeningApiRecord> {
   return request<ScreeningApiRecord>(`/api/screenings/${encodeURIComponent(screeningId)}`);
