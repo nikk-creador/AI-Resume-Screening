@@ -5,6 +5,7 @@ import {
   Empty,
   Input,
   InputNumber,
+  message,
   Modal,
   Popconfirm,
   Popover,
@@ -17,7 +18,8 @@ import type { ColumnsType } from 'antd/es/table';
 
 import { ReloadOutlined, StopOutlined } from '@ant-design/icons';
 
-import { API_BASE_URL } from '../../../services/api/config';
+import { downloadApiFile } from '../../../services/api/client';
+import { getErrorMessage } from '../../../services/screeningApi';
 import type { CandidateRow, ResumeRow, RetryMode } from '../../../types/screening';
 import {
   displayName,
@@ -30,6 +32,8 @@ const { Text, Title } = Typography;
 interface CandidateResultsProps {
   resumes: ResumeRow[];
   screeningId: string | null;
+  canEdit: boolean;
+  canDownload: boolean;
   query: string;
   page: number;
   pageSize: number;
@@ -54,6 +58,8 @@ interface CandidateResultsProps {
 export default function CandidateResults({
   resumes,
   screeningId,
+  canEdit,
+  canDownload,
   query,
   page,
   pageSize,
@@ -79,6 +85,7 @@ export default function CandidateResults({
   const [reviewScore, setReviewScore] = useState<number | null>(null);
   const [reviewNote, setReviewNote] = useState('');
   const [savingReview, setSavingReview] = useState(false);
+  const [messageApi, contextHolder] = message.useMessage();
   const filteredResumes = resumes.filter(
     (resume) => !query.trim() || resume.name.toLowerCase().includes(query.trim().toLowerCase()),
   );
@@ -108,6 +115,13 @@ export default function CandidateResults({
   const failedCount = resumes.filter((resume) => resume.evaluation?.status === 'failed').length;
   const stoppedCount = resumes.filter((resume) => resume.evaluation?.status === 'stopped').length;
   const retryableCount = failedCount + stoppedCount;
+  const downloadResume = async (resumeId: string, filename: string) => {
+    try {
+      await downloadApiFile(`/api/resumes/${encodeURIComponent(resumeId)}/download`, filename);
+    } catch (error: unknown) {
+      messageApi.error(getErrorMessage(error, 'Could not download this resume.'));
+    }
+  };
 
   const columns: ColumnsType<CandidateRow> = [
     {
@@ -314,12 +328,16 @@ export default function CandidateResults({
       align: 'right',
       render: (_, resume) => (
         <div className="row-actions">
-          {resume.id && (
-            <a href={`${API_BASE_URL}/api/resumes/${encodeURIComponent(resume.id)}/download`}>
+          {resume.id && canDownload && (
+            <Button
+              type="link"
+              size="small"
+              onClick={() => void downloadResume(resume.id!, resume.name)}
+            >
               Download
-            </a>
+            </Button>
           )}
-          {resume.id && resume.evaluation?.status === 'completed' && (
+          {canEdit && resume.id && resume.evaluation?.status === 'completed' && (
             <Button
               size="small"
               onClick={() => {
@@ -331,16 +349,18 @@ export default function CandidateResults({
               Review score
             </Button>
           )}
-          <Button
-            type="text"
-            danger
-            disabled={deleting}
-            onClick={() => {
-              onDeleteOne(resume.key);
-            }}
-          >
-            Remove
-          </Button>
+          {canEdit && (
+            <Button
+              type="text"
+              danger
+              disabled={deleting}
+              onClick={() => {
+                onDeleteOne(resume.key);
+              }}
+            >
+              Remove
+            </Button>
+          )}
         </div>
       ),
     },
@@ -348,6 +368,7 @@ export default function CandidateResults({
 
   return (
     <section className="section-card results-card">
+      {contextHolder}
       <div className="results-header">
         <div>
           <Text className="eyebrow">SCREENING WORKSPACE</Text>
@@ -359,7 +380,7 @@ export default function CandidateResults({
           </Text>
         </div>
         <div className="results-actions">
-          {isSaved && resumes.length > 0 && (
+          {canEdit && isSaved && resumes.length > 0 && (
             <Button
               icon={<ReloadOutlined />}
               loading={retryingMode !== null}
@@ -369,7 +390,7 @@ export default function CandidateResults({
               Retry screening
             </Button>
           )}
-          {isSaved && activeCount > 0 && (
+          {canEdit && isSaved && activeCount > 0 && (
             <Popconfirm
               title="Stop this screening?"
               description="Queued candidates will stop. A model request already in progress may finish, but its result will be discarded."
@@ -388,21 +409,23 @@ export default function CandidateResults({
               </Button>
             </Popconfirm>
           )}
-          <Button
-            type="primary"
-            className="screen-button"
-            loading={isSaving}
-            disabled={!canSave || isSaving || isSaved}
-            onClick={onSave}
-          >
-            {isSaving
-              ? 'Uploading resumes…'
-              : isSaved
-                ? resumes.some((resume) => resume.id === null && resume.file)
-                  ? 'Upload remaining resumes'
-                  : 'Screening saved'
-                : 'Start screening'}
-          </Button>
+          {canEdit && (
+            <Button
+              type="primary"
+              className="screen-button"
+              loading={isSaving}
+              disabled={!canSave || isSaving || isSaved}
+              onClick={onSave}
+            >
+              {isSaving
+                ? 'Uploading resumes…'
+                : isSaved
+                  ? resumes.some((resume) => resume.id === null && resume.file)
+                    ? 'Upload remaining resumes'
+                    : 'Screening saved'
+                  : 'Start screening'}
+            </Button>
+          )}
         </div>
       </div>
 
@@ -538,14 +561,16 @@ export default function CandidateResults({
             }}
             aria-label="Search resumes"
           />
-          <Button
-            danger
-            disabled={!selectedKeys.length || deleting}
-            loading={deleting}
-            onClick={onDeleteSelected}
-          >
-            Delete selected
-          </Button>
+          {canEdit && (
+            <Button
+              danger
+              disabled={!selectedKeys.length || deleting}
+              loading={deleting}
+              onClick={onDeleteSelected}
+            >
+              Delete selected
+            </Button>
+          )}
         </div>
       </div>
 
@@ -554,13 +579,17 @@ export default function CandidateResults({
         rowKey="key"
         columns={columns}
         dataSource={rows}
-        rowSelection={{
-          selectedRowKeys: selectedKeys,
-          preserveSelectedRowKeys: true,
-          onChange: (keys) => {
-            onSelectionChange(keys.map(String));
-          },
-        }}
+        rowSelection={
+          canEdit
+            ? {
+                selectedRowKeys: selectedKeys,
+                preserveSelectedRowKeys: true,
+                onChange: (keys) => {
+                  onSelectionChange(keys.map(String));
+                },
+              }
+            : undefined
+        }
         pagination={{
           current: page,
           pageSize,

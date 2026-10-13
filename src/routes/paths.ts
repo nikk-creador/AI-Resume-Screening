@@ -5,6 +5,7 @@ export const routes = {
   forgotPassword: '/forgot-password',
   verifyEmail: '/verify-email',
   resetPassword: '/reset-password',
+  acceptInvitation: '/accept-invitation',
   screenings: '/screenings',
   screening: '/screening',
   newScreening: '/screening/new',

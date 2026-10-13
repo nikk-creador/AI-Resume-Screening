@@ -88,6 +88,7 @@ def send_auth_email(
     action_url: str,
     *,
     password_reset: bool = False,
+    invitation: bool = False,
 ) -> bool:
     api_key = os.getenv("SENDGRID_API_KEY", "").strip()
     from_email = os.getenv("SENDGRID_FROM_EMAIL", "").strip()
@@ -102,6 +103,12 @@ def send_auth_email(
         "This link expires in 30 minutes and can only be used once. "
         "If you didn't request a password reset, you can ignore this email."
         if password_reset
+        else (
+            "You have been invited to join a RecruitAI hiring company.\n\n"
+            f"Accept the invitation and set your password using this secure link: {action_url}\n\n"
+            "This link expires in 72 hours and can only be used once."
+        )
+        if invitation
         else f"Use this link to verify your RecruitAI account. It expires in 30 minutes.\n\n{action_url}"
     )
     message = Mail(Email(from_email), To(email), subject, Content("text/plain", plain_text))
@@ -156,6 +163,23 @@ def get_current_user(
     if user is None or not user.is_active:
         raise unauthorized
     return user
+
+
+def get_optional_current_user(
+    session_token: str | None = Cookie(default=None, alias=SESSION_COOKIE),
+    db: Session = Depends(get_db),
+) -> User | None:
+    if not session_token:
+        return None
+    try:
+        payload = jwt.decode(session_token, AUTH_SECRET_KEY, algorithms=["HS256"])
+    except jwt.InvalidTokenError:
+        return None
+    user_id = payload.get("sub")
+    if not isinstance(user_id, str):
+        return None
+    user = db.get(User, user_id)
+    return user if user is not None and user.is_active else None
 
 
 def seed_demo_user(db: Session) -> None:

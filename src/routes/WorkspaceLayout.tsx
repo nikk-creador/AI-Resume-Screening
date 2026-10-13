@@ -26,9 +26,15 @@ import {
   screeningDraftReducer,
 } from '../features/screening/state/screeningDraft';
 import WorkspaceShell from '../layouts/WorkspaceShell';
+import {
+  getActiveCompanyId,
+  setActiveCompanyId as persistActiveCompanyId,
+} from '../services/api/client';
 import { queryKeys } from '../services/api/queryKeys';
+import { listCompanies } from '../services/organizationApi';
 import { ApiError, getErrorMessage, loadScreening } from '../services/screeningApi';
 import type { AuthUser } from '../types/auth';
+import type { CompanyAccess } from '../types/organization';
 import type { ResumeRow, RetryMode, ScreeningApiRecord, ScreeningState } from '../types/screening';
 import { getExtension, validateJobDescription, validateResume } from '../utils/screeningValidation';
 
@@ -77,7 +83,19 @@ interface WorkspaceLayoutProps {
   onSignOut: () => void;
 }
 
-export default function WorkspaceLayout({ user, onSignOut }: WorkspaceLayoutProps) {
+export default function WorkspaceLayout({
+  user,
+  user: { companies },
+  onSignOut,
+}: WorkspaceLayoutProps) {
+  const [activeCompanyId, setActiveCompanyId] = useState(() => {
+    const savedCompanyId = getActiveCompanyId();
+    if (savedCompanyId && user.companies.some((company) => company.id === savedCompanyId)) {
+      return savedCompanyId;
+    }
+    return user.default_company_id ?? user.companies[0]?.id ?? '';
+  });
+  const activeCompany = companies.find((company) => company.id === activeCompanyId) ?? companies[0];
   const [draft, dispatchDraft] = useReducer(screeningDraftReducer, null, createScreeningDraft);
   const { screeningId, resumes, jobFile, jobText, screeningName, criteria, jobRequirements } =
     draft;
@@ -105,6 +123,66 @@ export default function WorkspaceLayout({ user, onSignOut }: WorkspaceLayoutProp
   const [jobError, setJobError] = useState('');
   const [pageError, setPageError] = useState('');
   const [messageApi, contextHolder] = message.useMessage();
+  const clearCompanyWorkspace = () => {
+    queryClient.removeQueries({ queryKey: ['screenings'] });
+    window.localStorage.removeItem(SCREENING_STORAGE_KEY);
+    dispatchDraft({ type: 'reset' });
+  };
+  const selectCompany = (companyId: string) => {
+    if (companyId === activeCompanyId || !companies.some((company) => company.id === companyId)) {
+      return;
+    }
+    persistActiveCompanyId(companyId);
+    setActiveCompanyId(companyId);
+    clearCompanyWorkspace();
+    navigate(routes.screenings);
+  };
+  const addCreatedCompany = (company: CompanyAccess) => {
+    queryClient.setQueryData<AuthUser | null>(['auth', 'current-user'], (currentUser) =>
+      currentUser
+        ? {
+            ...currentUser,
+            companies: [...currentUser.companies.filter((item) => item.id !== company.id), company],
+          }
+        : currentUser,
+    );
+    persistActiveCompanyId(company.id);
+    setActiveCompanyId(company.id);
+    clearCompanyWorkspace();
+    navigate(routes.screenings);
+  };
+  const handleCompanyArchived = (companyId: string) => {
+    const remainingCompanies = companies.filter((company) => company.id !== companyId);
+    const nextCompany = remainingCompanies[0];
+    queryClient.setQueryData<AuthUser | null>(['auth', 'current-user'], (currentUser) =>
+      currentUser ? { ...currentUser, companies: remainingCompanies } : currentUser,
+    );
+    persistActiveCompanyId(nextCompany?.id ?? null);
+    setActiveCompanyId(nextCompany?.id ?? '');
+    clearCompanyWorkspace();
+    navigate(routes.screenings);
+  };
+  const refreshCompanyMemberships = async () => {
+    const result = await listCompanies();
+    queryClient.setQueryData<AuthUser | null>(['auth', 'current-user'], (currentUser) =>
+      currentUser ? { ...currentUser, companies: result.companies } : currentUser,
+    );
+  };
+  useEffect(() => {
+    const handleActiveCompanyChange = (event: Event) => {
+      const companyId = (event as CustomEvent<string | null>).detail;
+      const currentUser = queryClient.getQueryData<AuthUser | null>(['auth', 'current-user']);
+      if (!companyId || !currentUser?.companies.some((company) => company.id === companyId)) return;
+      setActiveCompanyId(companyId);
+      queryClient.removeQueries({ queryKey: ['screenings'] });
+      window.localStorage.removeItem(SCREENING_STORAGE_KEY);
+      dispatchDraft({ type: 'reset' });
+      navigate(routes.screenings);
+    };
+    window.addEventListener('recruitai:active-company-change', handleActiveCompanyChange);
+    return () =>
+      window.removeEventListener('recruitai:active-company-change', handleActiveCompanyChange);
+  }, [navigate, queryClient]);
   const screeningQuery = useScreeningDetail(screeningId, { pollWhileEvaluating: true });
   const loading =
     !draft.initialized || openingScreening || Boolean(screeningId && screeningQuery.isPending);
@@ -157,6 +235,30 @@ export default function WorkspaceLayout({ user, onSignOut }: WorkspaceLayoutProp
         : (routeScreeningId ?? window.localStorage.getItem(SCREENING_STORAGE_KEY)),
     });
   }, [isNewScreeningRoute, routeScreeningId]);
+  useEffect(() => {
+    const handleCompanyAccessDenied = (event: Event) => {
+      const deniedCompanyId = (event as CustomEvent<string | null>).detail;
+      if (!deniedCompanyId || deniedCompanyId !== activeCompanyId) return;
+      queryClient.removeQueries({ queryKey: ['screenings'] });
+      window.localStorage.removeItem(SCREENING_STORAGE_KEY);
+      dispatchDraft({ type: 'reset' });
+      setPageError('Your access to this company changed. Switch to another available company.');
+    };
+    const handleCompanyViewDenied = (event: Event) => {
+      const deniedCompanyId = (event as CustomEvent<string | null>).detail;
+      if (!deniedCompanyId || deniedCompanyId !== activeCompanyId) return;
+      queryClient.removeQueries({ queryKey: ['screenings'] });
+      window.localStorage.removeItem(SCREENING_STORAGE_KEY);
+      dispatchDraft({ type: 'reset' });
+      setPageError('Your screening view permission was removed. Contact a company administrator.');
+    };
+    window.addEventListener('recruitai:company-access-denied', handleCompanyAccessDenied);
+    window.addEventListener('recruitai:company-view-access-denied', handleCompanyViewDenied);
+    return () => {
+      window.removeEventListener('recruitai:company-access-denied', handleCompanyAccessDenied);
+      window.removeEventListener('recruitai:company-view-access-denied', handleCompanyViewDenied);
+    };
+  }, [activeCompanyId, queryClient]);
   useEffect(() => {
     syncSavedScreening(screeningQuery.data, screeningQuery.error, screeningQuery.isPending);
   }, [screeningId, screeningQuery.data, screeningQuery.error, screeningQuery.isPending]);
@@ -451,11 +553,27 @@ export default function WorkspaceLayout({ user, onSignOut }: WorkspaceLayoutProp
     !(screeningQuery.error instanceof ApiError && screeningQuery.error.status === 404)
       ? getErrorMessage(screeningQuery.error, 'Could not load or refresh the saved screening.')
       : '';
+  if (!activeCompany) {
+    return (
+      <main className="main-content">
+        <Alert
+          type="error"
+          showIcon
+          title="No company workspace is available for this account. Contact an organization administrator."
+        />
+      </main>
+    );
+  }
   return (
     <WorkspaceShell
       user={user}
+      companies={companies}
+      activeCompany={activeCompany}
+      onSelectCompany={selectCompany}
+      onCompanyCreated={addCreatedCompany}
+      onCompanyArchived={handleCompanyArchived}
+      onCompanyRestored={refreshCompanyMemberships}
       notificationHolder={contextHolder}
-      onNewScreening={handleNewScreening}
       onShowScreenings={() => navigate(routes.screenings)}
       onShowAI={() => navigate(routes.ai)}
       onSignOut={onSignOut}
@@ -519,7 +637,7 @@ export default function WorkspaceLayout({ user, onSignOut }: WorkspaceLayoutProp
               <Row gutter={[16, 16]} className="intake-row">
                 <Col xs={24} lg={14}>
                   <ResumeUploader
-                    disabled={loading || Boolean(screeningId)}
+                    disabled={!activeCompany.permissions.edit || loading || Boolean(screeningId)}
                     onBeforeUpload={addResume}
                     resumeCount={resumes.length}
                   />
@@ -531,7 +649,7 @@ export default function WorkspaceLayout({ user, onSignOut }: WorkspaceLayoutProp
                 </Col>
                 <Col xs={24} lg={10}>
                   <JobDescriptionInput
-                    disabled={loading || Boolean(screeningId)}
+                    disabled={!activeCompany.permissions.edit || loading || Boolean(screeningId)}
                     jobFile={jobFile}
                     jobText={jobText}
                     error={jobError}
@@ -547,13 +665,14 @@ export default function WorkspaceLayout({ user, onSignOut }: WorkspaceLayoutProp
                       setJobError('');
                     }}
                     screeningId={screeningId}
+                    canDownload={activeCompany.permissions.download}
                   />
                 </Col>
               </Row>
 
               <ScreeningCriteriaEditor
                 criteria={criteria}
-                disabled={loading || Boolean(screeningId)}
+                disabled={!activeCompany.permissions.edit || loading || Boolean(screeningId)}
                 canSuggest={Boolean(jobFile || jobText.trim())}
                 isSuggesting={suggestingCriteria}
                 onChange={setCriteria}
@@ -563,6 +682,8 @@ export default function WorkspaceLayout({ user, onSignOut }: WorkspaceLayoutProp
               <CandidateResults
                 resumes={resumes}
                 screeningId={screeningId}
+                canEdit={activeCompany.permissions.edit}
+                canDownload={activeCompany.permissions.download}
                 query={query}
                 page={page}
                 pageSize={pageSize}
@@ -624,7 +745,11 @@ export default function WorkspaceLayout({ user, onSignOut }: WorkspaceLayoutProp
                   </Paragraph>
                 </div>
               </div>
-              <ScreeningsList onOpen={openScreeningInList} onNewScreening={handleNewScreening} />
+              <ScreeningsList
+                onOpen={openScreeningInList}
+                onNewScreening={handleNewScreening}
+                canEdit={activeCompany.permissions.edit}
+              />
             </main>
           }
         />
@@ -633,6 +758,7 @@ export default function WorkspaceLayout({ user, onSignOut }: WorkspaceLayoutProp
           element={
             <AIServicePanel
               key={screeningId ?? 'none'}
+              canEdit={activeCompany.permissions.edit}
               screeningId={screeningId}
               screeningName={screeningName}
               resumes={resumes}

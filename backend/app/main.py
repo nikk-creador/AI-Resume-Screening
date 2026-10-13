@@ -9,7 +9,7 @@ from pathlib import Path
 import re
 import secrets
 from threading import Event, Thread
-from typing import Literal
+from typing import Any, Literal
 from uuid import uuid4
 from urllib.parse import quote
 
@@ -32,16 +32,46 @@ from .auth import (
     create_session_token,
     decode_action_token,
     get_current_user,
+    get_optional_current_user,
     hash_password,
     normalize_email,
     seed_demo_user,
     send_auth_email,
     verify_google_credential,
 )
-from .database import Base, SessionLocal, UPLOAD_DIR, engine, get_db, migrate_screening_schema
+from .database import (
+    Base,
+    SessionLocal,
+    UPLOAD_DIR,
+    backfill_organization_schema,
+    engine,
+    get_db,
+    migrate_screening_schema,
+)
 from .evaluation import EvaluationCriterion, extract_pdf_text, suggest_criteria, test_ai_service
 from .matching import JobRequirement, default_matching_weights
-from .models import Resume, ResumeEvaluation, Screening, ScreeningRubric, User
+from .models import (
+    AuditLog,
+    Company,
+    CompanyInvitation,
+    CompanyMembership,
+    Organization,
+    OrganizationMembership,
+    Resume,
+    ResumeEvaluation,
+    Screening,
+    ScreeningRubric,
+    User,
+)
+from .tenancy import (
+    company_access_payload,
+    create_default_tenant,
+    get_company_user,
+    invitation_expiry,
+    require_company_permission,
+    screening_company_scope,
+    write_audit_log,
+)
 from .worker import run_worker
 
 MAX_FILE_SIZE = 10 * 1024 * 1024
@@ -55,6 +85,37 @@ MAX_EVALUATION_CRITERIA = 20
 
 class BulkDeleteResumes(BaseModel):
     resume_ids: list[str]
+
+
+class OrganizationCreateRequest(BaseModel):
+    name: str = Field(min_length=2, max_length=160)
+    initial_company_name: str = Field(min_length=2, max_length=160)
+
+
+class CompanyCreateRequest(BaseModel):
+    name: str = Field(min_length=2, max_length=160)
+    parent_company_id: str | None = None
+
+
+class InviteCompanyMemberRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=320)
+    can_view: bool = True
+    can_edit: bool = False
+    can_download: bool = False
+    can_manage_members: bool = False
+
+
+class UpdateCompanyMemberRequest(BaseModel):
+    can_view: bool | None = None
+    can_edit: bool | None = None
+    can_download: bool | None = None
+    can_manage_members: bool | None = None
+
+
+class AcceptCompanyInvitationRequest(BaseModel):
+    token: str = Field(min_length=20, max_length=256)
+    full_name: str | None = Field(default=None, min_length=2, max_length=120)
+    password: str | None = Field(default=None, min_length=12, max_length=256)
 
 
 class LoginRequest(BaseModel):
@@ -105,6 +166,7 @@ async def lifespan(_: FastAPI):
     migrate_screening_schema(engine)
     with SessionLocal() as db:
         seed_demo_user(db)
+    backfill_organization_schema(engine)
     worker_stop = Event()
     worker_thread = None
     if os.getenv("RUN_EVALUATION_WORKER", "true").strip().lower() not in {"0", "false", "no"}:
@@ -196,6 +258,95 @@ def iso_utc(value: datetime) -> str:
     return value.astimezone(timezone.utc).isoformat()
 
 
+def auth_user_payload(db: Session, user: User) -> dict:
+    memberships = db.execute(
+        select(CompanyMembership, Company, Organization)
+        .join(Company, Company.id == CompanyMembership.company_id)
+        .join(Organization, Organization.id == Company.organization_id)
+        .where(
+            CompanyMembership.user_id == user.id,
+            CompanyMembership.is_active.is_(True),
+            Company.is_active.is_(True),
+            Organization.is_active.is_(True),
+        )
+        .order_by(Organization.name, Company.name)
+    ).all()
+    organization_roles = {
+        membership.organization_id: membership.role
+        for membership in db.scalars(
+            select(OrganizationMembership).where(
+                OrganizationMembership.user_id == user.id,
+                OrganizationMembership.is_active.is_(True),
+            )
+        ).all()
+    }
+    return {
+        "id": user.id,
+        "email": user.email,
+        "full_name": user.full_name,
+        "default_company_id": user.default_company_id,
+        "companies": [
+            company_access_payload(
+                membership, company, organization, organization_roles.get(organization.id)
+            )
+            for membership, company, organization in memberships
+        ],
+    }
+
+
+def require_selected_company(user: User, company_id: str) -> None:
+    if getattr(user, "active_company_id", None) != company_id:
+        raise HTTPException(status_code=404, detail="Company not found.")
+
+
+def membership_role(can_view: bool, can_edit: bool, can_download: bool, can_manage_members: bool) -> str:
+    if can_view and can_edit and can_download and can_manage_members:
+        return "company_admin"
+    if can_edit:
+        return "recruiter"
+    return "viewer"
+
+
+def invitation_payload(invitation: CompanyInvitation) -> dict:
+    return {
+        "id": invitation.id,
+        "email": invitation.email,
+        "role": invitation.role,
+        "permissions": {
+            "view": invitation.can_view,
+            "edit": invitation.can_edit,
+            "download": invitation.can_download,
+            "manage_members": invitation.can_manage_members,
+        },
+        "expires_at": iso_utc(invitation.expires_at),
+    }
+
+
+def deliver_company_invitation(
+    db: Session,
+    invitation: CompanyInvitation,
+    company: Company,
+    raw_token: str,
+) -> str | None:
+    action_url = auth_action_url("/accept-invitation", raw_token)
+    try:
+        send_auth_email(
+            invitation.email,
+            f"Join {company.name} on RecruitAI",
+            action_url,
+            invitation=True,
+        )
+    except (OSError, RuntimeError, ValueError) as error:
+        invitation.revoked_at = datetime.now(timezone.utc)
+        invitation.status = "revoked"
+        db.commit()
+        raise HTTPException(
+            status_code=503,
+            detail="Invitation email could not be sent. Try again later.",
+        ) from error
+    return action_url if APP_ENV != "production" else None
+
+
 @app.post("/api/ai/test", tags=["ai"])
 def ai_test(_: User = Depends(get_current_user)):
     try:
@@ -240,6 +391,7 @@ def register_account(payload: RegisterRequest, db: Session = Depends(get_db)) ->
         is_verified=False,
     )
     db.add(user)
+    create_default_tenant(db, user)
     db.commit()
     action_url = auth_action_url(
         "/verify-email", create_action_token(user, "email_verification")
@@ -372,7 +524,7 @@ def health_check(db: Session = Depends(get_db)) -> dict[str, str]:
 
 
 @app.post("/api/auth/login", tags=["authentication"])
-def login(payload: LoginRequest, response: Response, db: Session = Depends(get_db)) -> dict[str, dict[str, str]]:
+def login(payload: LoginRequest, response: Response, db: Session = Depends(get_db)) -> dict[str, Any]:
     user = authenticate_user(db, payload.email, payload.password)
     if user is None:
         raise HTTPException(status_code=401, detail="Email or password is incorrect.")
@@ -390,7 +542,7 @@ def login(payload: LoginRequest, response: Response, db: Session = Depends(get_d
         samesite="strict",
         path="/",
     )
-    return {"user": {"id": user.id, "email": user.email, "full_name": user.full_name}}
+    return {"user": auth_user_payload(db, user)}
 
 
 @app.post("/api/auth/verification/complete", tags=["authentication"])
@@ -454,7 +606,7 @@ def google_login(
     payload: GoogleSignInRequest,
     response: Response,
     db: Session = Depends(get_db),
-) -> dict[str, dict[str, str]]:
+) -> dict[str, Any]:
     try:
         claims = verify_google_credential(payload.credential)
     except (GoogleAuthError, ValueError) as error:
@@ -475,6 +627,7 @@ def google_login(
             password_hash=hash_password(secrets.token_urlsafe(48)),
         )
         db.add(user)
+        create_default_tenant(db, user)
         db.commit()
     elif not user.is_active:
         raise HTTPException(status_code=403, detail="This account is disabled.")
@@ -491,12 +644,14 @@ def google_login(
         samesite="strict",
         path="/",
     )
-    return {"user": {"id": user.id, "email": user.email, "full_name": user.full_name}}
+    return {"user": auth_user_payload(db, user)}
 
 
 @app.get("/api/auth/me", tags=["authentication"])
-def current_user(user: User = Depends(get_current_user)) -> dict[str, dict[str, str]]:
-    return {"user": {"id": user.id, "email": user.email, "full_name": user.full_name}}
+def current_user(
+    db: Session = Depends(get_db), user: User = Depends(get_current_user)
+) -> dict[str, Any]:
+    return {"user": auth_user_payload(db, user)}
 
 
 @app.post("/api/auth/logout", status_code=status.HTTP_204_NO_CONTENT, tags=["authentication"])
@@ -512,6 +667,683 @@ def logout(response: Response) -> Response:
     return response
 
 
+@app.post("/api/organizations", status_code=status.HTTP_201_CREATED, tags=["organizations"])
+def create_organization(
+    payload: OrganizationCreateRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict:
+    organization_name = payload.name.strip()
+    initial_company_name = payload.initial_company_name.strip()
+    if len(organization_name) < 2 or len(initial_company_name) < 2:
+        raise HTTPException(status_code=422, detail="Enter organization and company names with at least two characters.")
+    organization = Organization(id=str(uuid4()), name=organization_name)
+    company = Company(
+        id=str(uuid4()),
+        organization_id=organization.id,
+        name=initial_company_name,
+    )
+    db.add(organization)
+    db.flush()
+    db.add(company)
+    db.flush()
+    db.add_all(
+        [
+            OrganizationMembership(
+                id=str(uuid4()), organization_id=organization.id, user_id=user.id,
+                role="admin", status="active",
+            ),
+            CompanyMembership(
+                id=str(uuid4()), company_id=company.id, user_id=user.id,
+                role="company_admin", status="active", can_view=True, can_edit=True,
+                can_download=True, can_manage_members=True,
+            ),
+        ]
+    )
+    user.default_company_id = company.id
+    write_audit_log(
+        db, user=user, company=company, action="organization.created",
+        resource_type="organization", resource_id=organization.id,
+    )
+    db.commit()
+    return {
+        "organization_id": organization.id,
+        "organization_name": organization.name,
+        "company_id": company.id,
+        "company_name": company.name,
+    }
+
+
+@app.get("/api/companies", tags=["organizations"])
+def list_user_companies(
+    db: Session = Depends(get_db), user: User = Depends(get_current_user)
+) -> dict:
+    rows = db.execute(
+        select(CompanyMembership, Company, Organization)
+        .join(Company, Company.id == CompanyMembership.company_id)
+        .join(Organization, Organization.id == Company.organization_id)
+        .where(
+            CompanyMembership.user_id == user.id,
+            CompanyMembership.is_active.is_(True),
+            Company.is_active.is_(True),
+            Organization.is_active.is_(True),
+        )
+        .order_by(Organization.name, Company.name)
+    ).all()
+    organization_roles = {
+        membership.organization_id: membership.role
+        for membership in db.scalars(
+            select(OrganizationMembership).where(
+                OrganizationMembership.user_id == user.id,
+                OrganizationMembership.is_active.is_(True),
+            )
+        ).all()
+    }
+    return {
+        "default_company_id": user.default_company_id,
+        "companies": [
+            company_access_payload(
+                membership, company, organization, organization_roles.get(organization.id)
+            )
+            for membership, company, organization in rows
+        ],
+    }
+
+
+@app.post(
+    "/api/organizations/{organization_id}/companies",
+    status_code=status.HTTP_201_CREATED,
+    tags=["organizations"],
+)
+def create_company(
+    organization_id: str,
+    payload: CompanyCreateRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict:
+    organization = db.get(Organization, organization_id)
+    organization_membership = db.scalar(
+        select(OrganizationMembership).where(
+            OrganizationMembership.organization_id == organization_id,
+            OrganizationMembership.user_id == user.id,
+            OrganizationMembership.is_active.is_(True),
+            OrganizationMembership.role == "admin",
+        )
+    )
+    if organization is None or not organization.is_active or organization_membership is None:
+        raise HTTPException(status_code=404, detail="Organization not found.")
+    company_name = payload.name.strip()
+    if len(company_name) < 2:
+        raise HTTPException(status_code=422, detail="Enter a company name with at least two characters.")
+    if payload.parent_company_id:
+        parent = db.get(Company, payload.parent_company_id)
+        if parent is None or parent.organization_id != organization_id or not parent.is_active:
+            raise HTTPException(status_code=422, detail="Choose a parent company in this organization.")
+
+    company = Company(
+        id=str(uuid4()),
+        organization_id=organization_id,
+        parent_company_id=payload.parent_company_id,
+        name=company_name,
+    )
+    db.add(company)
+    db.flush()
+    db.add(
+        CompanyMembership(
+            id=str(uuid4()), company_id=company.id, user_id=user.id,
+            role="company_admin", status="active", can_view=True, can_edit=True,
+            can_download=True, can_manage_members=True,
+        )
+    )
+    write_audit_log(
+        db, user=user, company=company, action="company.created",
+        resource_type="company", resource_id=company.id,
+    )
+    db.commit()
+    return {
+        "id": company.id,
+        "name": company.name,
+        "organization_id": organization_id,
+        "parent_company_id": company.parent_company_id,
+    }
+
+
+@app.get("/api/organizations/{organization_id}/companies", tags=["organizations"])
+def list_organization_companies(
+    organization_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict:
+    organization = db.get(Organization, organization_id)
+    organization_admin = db.scalar(
+        select(OrganizationMembership.id).where(
+            OrganizationMembership.organization_id == organization_id,
+            OrganizationMembership.user_id == user.id,
+            OrganizationMembership.role == "admin",
+            OrganizationMembership.is_active.is_(True),
+        )
+    )
+    if organization is None or organization_admin is None:
+        raise HTTPException(status_code=404, detail="Organization not found.")
+    companies = db.scalars(
+        select(Company).where(Company.organization_id == organization_id)
+        .order_by(Company.name)
+    ).all()
+    return {"companies": [
+        {
+            "id": company.id,
+            "name": company.name,
+            "parent_company_id": company.parent_company_id,
+            "is_active": company.is_active,
+        }
+        for company in companies
+    ]}
+
+
+@app.post("/api/companies/{company_id}/archive", tags=["organizations"])
+def archive_company(
+    company_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict:
+    company = db.get(Company, company_id)
+    organization_admin = db.scalar(
+        select(OrganizationMembership.id).where(
+            OrganizationMembership.organization_id == (company.organization_id if company else ""),
+            OrganizationMembership.user_id == user.id,
+            OrganizationMembership.role == "admin",
+            OrganizationMembership.is_active.is_(True),
+        )
+    )
+    if company is None or organization_admin is None:
+        raise HTTPException(status_code=404, detail="Company not found.")
+    if not company.is_active:
+        return {"archived": True, "company_id": company.id}
+    active_children = db.scalar(
+        select(func.count()).select_from(Company).where(
+            Company.parent_company_id == company.id,
+            Company.is_active.is_(True),
+        )
+    ) or 0
+    if active_children:
+        raise HTTPException(status_code=409, detail="Archive active subsidiary companies first.")
+    other_accessible_companies = db.scalar(
+        select(func.count())
+        .select_from(CompanyMembership)
+        .join(Company, Company.id == CompanyMembership.company_id)
+        .where(
+            CompanyMembership.user_id == user.id,
+            CompanyMembership.is_active.is_(True),
+            Company.is_active.is_(True),
+            Company.id != company.id,
+        )
+    ) or 0
+    if other_accessible_companies == 0:
+        raise HTTPException(status_code=409, detail="Create or join another company before archiving your only active company.")
+    write_audit_log(
+        db, user=user, company=company, action="company.archived",
+        resource_type="company", resource_id=company.id,
+    )
+    company.is_active = False
+    db.commit()
+    return {"archived": True, "company_id": company.id}
+
+
+@app.post("/api/companies/{company_id}/restore", tags=["organizations"])
+def restore_company(
+    company_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict:
+    company = db.get(Company, company_id)
+    organization_admin = db.scalar(
+        select(OrganizationMembership.id).where(
+            OrganizationMembership.organization_id == (company.organization_id if company else ""),
+            OrganizationMembership.user_id == user.id,
+            OrganizationMembership.role == "admin",
+            OrganizationMembership.is_active.is_(True),
+        )
+    )
+    if company is None or organization_admin is None:
+        raise HTTPException(status_code=404, detail="Company not found.")
+    organization = db.get(Organization, company.organization_id)
+    if organization is None or not organization.is_active:
+        raise HTTPException(status_code=409, detail="Restore the organization before restoring this company.")
+    if company.parent_company_id:
+        parent = db.get(Company, company.parent_company_id)
+        if parent is None or not parent.is_active:
+            raise HTTPException(status_code=409, detail="Restore the parent company before restoring this company.")
+    company.is_active = True
+    write_audit_log(
+        db, user=user, company=company, action="company.restored",
+        resource_type="company", resource_id=company.id,
+    )
+    db.commit()
+    return {"restored": True, "company_id": company.id}
+
+
+@app.get("/api/companies/{company_id}/members", tags=["organizations"])
+def list_company_members(
+    company_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_company_user),
+) -> dict:
+    require_selected_company(user, company_id)
+    require_company_permission(user, "can_manage_members")
+    rows = db.execute(
+        select(CompanyMembership, User)
+        .join(User, User.id == CompanyMembership.user_id)
+        .where(CompanyMembership.company_id == company_id)
+        .order_by(User.full_name, User.email)
+    ).all()
+    return {
+        "members": [
+            {
+                "user_id": member_user.id,
+                "email": member_user.email,
+                "full_name": member_user.full_name,
+                "role": membership.role,
+                "is_active": membership.is_active,
+                "permissions": {
+                    "view": membership.can_view,
+                    "edit": membership.can_edit,
+                    "download": membership.can_download,
+                    "manage_members": membership.can_manage_members,
+                },
+            }
+            for membership, member_user in rows
+        ]
+    }
+
+
+@app.patch("/api/companies/{company_id}/members/{member_user_id}", tags=["organizations"])
+def update_company_member(
+    company_id: str,
+    member_user_id: str,
+    payload: UpdateCompanyMemberRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_company_user),
+) -> dict:
+    require_selected_company(user, company_id)
+    require_company_permission(user, "can_manage_members")
+    membership = db.scalar(
+        select(CompanyMembership).where(
+            CompanyMembership.company_id == company_id,
+            CompanyMembership.user_id == member_user_id,
+        )
+    )
+    company = db.get(Company, company_id)
+    if membership is None or company is None:
+        raise HTTPException(status_code=404, detail="Member not found.")
+    changes = payload.model_dump(exclude_unset=True)
+    if not changes:
+        raise HTTPException(status_code=422, detail="Choose at least one access permission.")
+    next_permissions = {
+        "can_view": changes.get("can_view", membership.can_view),
+        "can_edit": changes.get("can_edit", membership.can_edit),
+        "can_download": changes.get("can_download", membership.can_download),
+        "can_manage_members": changes.get("can_manage_members", membership.can_manage_members),
+    }
+    if not next_permissions["can_view"] and any(
+        next_permissions[key] for key in ("can_edit", "can_download", "can_manage_members")
+    ):
+        raise HTTPException(status_code=422, detail="Edit, download, and member management require view access.")
+    if membership.is_active and membership.can_manage_members and not next_permissions["can_manage_members"]:
+        other_admins = db.scalar(
+            select(func.count()).select_from(CompanyMembership).where(
+                CompanyMembership.company_id == company_id,
+                CompanyMembership.is_active.is_(True),
+                CompanyMembership.can_manage_members.is_(True),
+                CompanyMembership.user_id != member_user_id,
+            )
+        ) or 0
+        if other_admins == 0:
+            raise HTTPException(status_code=409, detail="A company must keep at least one member manager.")
+    for key, value in next_permissions.items():
+        setattr(membership, key, value)
+    membership.role = membership_role(**next_permissions)
+    write_audit_log(
+        db, user=user, company=company, action="membership.permissions_changed",
+        resource_type="user", resource_id=member_user_id, details=next_permissions,
+    )
+    db.commit()
+    return {"user_id": member_user_id, "role": membership.role, "permissions": {
+        "view": membership.can_view, "edit": membership.can_edit,
+        "download": membership.can_download, "manage_members": membership.can_manage_members,
+    }}
+
+
+@app.delete("/api/companies/{company_id}/members/{member_user_id}", tags=["organizations"])
+def revoke_company_member(
+    company_id: str,
+    member_user_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_company_user),
+) -> dict:
+    require_selected_company(user, company_id)
+    require_company_permission(user, "can_manage_members")
+    membership = db.scalar(
+        select(CompanyMembership).where(
+            CompanyMembership.company_id == company_id,
+            CompanyMembership.user_id == member_user_id,
+            CompanyMembership.is_active.is_(True),
+        )
+    )
+    company = db.get(Company, company_id)
+    if membership is None or company is None:
+        raise HTTPException(status_code=404, detail="Member not found.")
+    if membership.can_manage_members:
+        other_admins = db.scalar(
+            select(func.count()).select_from(CompanyMembership).where(
+                CompanyMembership.company_id == company_id,
+                CompanyMembership.is_active.is_(True),
+                CompanyMembership.can_manage_members.is_(True),
+                CompanyMembership.user_id != member_user_id,
+            )
+        ) or 0
+        if other_admins == 0:
+            raise HTTPException(status_code=409, detail="A company must keep at least one member manager.")
+    membership.is_active = False
+    membership.status = "inactive"
+    write_audit_log(
+        db, user=user, company=company, action="membership.revoked",
+        resource_type="user", resource_id=member_user_id,
+    )
+    db.commit()
+    return {"revoked": True, "user_id": member_user_id}
+
+
+@app.post("/api/companies/{company_id}/invitations", status_code=status.HTTP_201_CREATED, tags=["organizations"])
+def invite_company_member(
+    company_id: str,
+    payload: InviteCompanyMemberRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_company_user),
+) -> dict:
+    require_selected_company(user, company_id)
+    require_company_permission(user, "can_manage_members")
+    email = normalize_email(payload.email)
+    if "@" not in email:
+        raise HTTPException(status_code=422, detail="Enter a valid email address.")
+    permissions = payload.model_dump(exclude={"email"})
+    if not permissions["can_view"]:
+        raise HTTPException(status_code=422, detail="An invitation must grant screening view access.")
+    if not permissions["can_view"] and any(
+        permissions[key] for key in ("can_edit", "can_download", "can_manage_members")
+    ):
+        raise HTTPException(status_code=422, detail="Edit, download, and member management require view access.")
+    existing = db.scalar(select(User).where(User.email == email))
+    if existing and db.scalar(
+        select(CompanyMembership.id).where(
+            CompanyMembership.company_id == company_id,
+            CompanyMembership.user_id == existing.id,
+            CompanyMembership.is_active.is_(True),
+        )
+    ):
+        raise HTTPException(status_code=409, detail="This user is already a member of the company.")
+    pending = db.scalars(
+        select(CompanyInvitation).where(
+            CompanyInvitation.company_id == company_id,
+            CompanyInvitation.email == email,
+            CompanyInvitation.accepted_at.is_(None),
+            CompanyInvitation.revoked_at.is_(None),
+        )
+    ).all()
+    now = datetime.now(timezone.utc)
+    for previous in pending:
+        previous.revoked_at = now
+        previous.status = "revoked"
+    company = db.get(Company, company_id)
+    if company is None:
+        raise HTTPException(status_code=404, detail="Company not found.")
+    raw_token = secrets.token_urlsafe(32)
+    token_digest = hashlib.sha256(raw_token.encode()).hexdigest()
+    invitation = CompanyInvitation(
+        id=str(uuid4()),
+        company_id=company_id,
+        email=email,
+        token_digest=token_digest,
+        token_hash=token_digest,
+        invited_by_id=user.id,
+        invited_by=user.id,
+        role=membership_role(**permissions),
+        status="pending",
+        expires_at=invitation_expiry(),
+        **permissions,
+    )
+    db.add(invitation)
+    write_audit_log(
+        db, user=user, company=company, action="invitation.created",
+        resource_type="invitation", resource_id=invitation.id, details={"email": email},
+    )
+    db.commit()
+    action_url = deliver_company_invitation(db, invitation, company, raw_token)
+    return {"invitation": invitation_payload(invitation), "action_url": action_url}
+
+
+@app.get("/api/companies/{company_id}/invitations", tags=["organizations"])
+def list_company_invitations(
+    company_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_company_user),
+) -> dict:
+    require_selected_company(user, company_id)
+    require_company_permission(user, "can_manage_members")
+    invitations = db.scalars(
+        select(CompanyInvitation).where(
+            CompanyInvitation.company_id == company_id,
+            CompanyInvitation.accepted_at.is_(None),
+            CompanyInvitation.revoked_at.is_(None),
+        ).order_by(CompanyInvitation.created_at.desc())
+    ).all()
+    return {"invitations": [invitation_payload(invitation) for invitation in invitations]}
+
+
+@app.delete("/api/companies/{company_id}/invitations/{invitation_id}", tags=["organizations"])
+def revoke_company_invitation(
+    company_id: str,
+    invitation_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_company_user),
+) -> dict:
+    require_selected_company(user, company_id)
+    require_company_permission(user, "can_manage_members")
+    invitation = db.scalar(
+        select(CompanyInvitation).where(
+            CompanyInvitation.id == invitation_id,
+            CompanyInvitation.company_id == company_id,
+            CompanyInvitation.accepted_at.is_(None),
+            CompanyInvitation.revoked_at.is_(None),
+        )
+    )
+    company = db.get(Company, company_id)
+    if invitation is None or company is None:
+        raise HTTPException(status_code=404, detail="Invitation not found.")
+    invitation.revoked_at = datetime.now(timezone.utc)
+    invitation.status = "revoked"
+    write_audit_log(
+        db, user=user, company=company, action="invitation.revoked",
+        resource_type="invitation", resource_id=invitation.id,
+    )
+    db.commit()
+    return {"revoked": True}
+
+
+@app.post("/api/companies/{company_id}/invitations/{invitation_id}/resend", tags=["organizations"])
+def resend_company_invitation(
+    company_id: str,
+    invitation_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_company_user),
+) -> dict:
+    require_selected_company(user, company_id)
+    require_company_permission(user, "can_manage_members")
+    invitation = db.scalar(
+        select(CompanyInvitation).where(
+            CompanyInvitation.id == invitation_id,
+            CompanyInvitation.company_id == company_id,
+            CompanyInvitation.accepted_at.is_(None),
+            CompanyInvitation.revoked_at.is_(None),
+        )
+    )
+    company = db.get(Company, company_id)
+    if invitation is None or company is None:
+        raise HTTPException(status_code=404, detail="Invitation not found.")
+    raw_token = secrets.token_urlsafe(32)
+    invitation.token_digest = hashlib.sha256(raw_token.encode()).hexdigest()
+    invitation.token_hash = invitation.token_digest
+    invitation.status = "pending"
+    invitation.expires_at = invitation_expiry()
+    invitation.created_at = datetime.now(timezone.utc)
+    write_audit_log(
+        db, user=user, company=company, action="invitation.resent",
+        resource_type="invitation", resource_id=invitation.id,
+    )
+    db.commit()
+    action_url = deliver_company_invitation(db, invitation, company, raw_token)
+    return {"invitation": invitation_payload(invitation), "action_url": action_url}
+
+
+@app.get("/api/invitations/{token}", tags=["organizations"])
+def get_invitation(token: str, db: Session = Depends(get_db)) -> dict:
+    digest = hashlib.sha256(token.encode()).hexdigest()
+    invitation = db.scalar(
+        select(CompanyInvitation).where(CompanyInvitation.token_digest == digest)
+    )
+    if invitation is None or invitation.accepted_at or invitation.revoked_at:
+        raise HTTPException(status_code=404, detail="Invitation not found or expired.")
+    expires_at = invitation.expires_at
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    if expires_at <= datetime.now(timezone.utc):
+        raise HTTPException(status_code=404, detail="Invitation not found or expired.")
+    company = db.get(Company, invitation.company_id)
+    organization = db.get(Organization, company.organization_id) if company else None
+    if company is None or organization is None or not company.is_active or not organization.is_active:
+        raise HTTPException(status_code=404, detail="Invitation not found or expired.")
+    return {
+        "company_id": company.id,
+        "email": invitation.email,
+        "company_name": company.name,
+        "organization_name": organization.name,
+        "permissions": {
+            "view": invitation.can_view,
+            "edit": invitation.can_edit,
+            "download": invitation.can_download,
+        },
+        "expires_at": iso_utc(invitation.expires_at),
+    }
+
+
+@app.post("/api/invitations/accept", tags=["organizations"])
+def accept_company_invitation(
+    payload: AcceptCompanyInvitationRequest,
+    response: Response,
+    db: Session = Depends(get_db),
+    authenticated_user: User | None = Depends(get_optional_current_user),
+) -> dict:
+    digest = hashlib.sha256(payload.token.encode()).hexdigest()
+    invitation = db.scalar(
+        select(CompanyInvitation).where(CompanyInvitation.token_digest == digest)
+    )
+    if invitation is None or invitation.accepted_at or invitation.revoked_at:
+        raise HTTPException(status_code=400, detail="This invitation is invalid or expired.")
+    expires_at = invitation.expires_at
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    if expires_at <= datetime.now(timezone.utc):
+        raise HTTPException(status_code=400, detail="This invitation is invalid or expired.")
+
+    user = db.scalar(select(User).where(User.email == invitation.email))
+    if user is None:
+        if not payload.full_name or not payload.password:
+            raise HTTPException(status_code=422, detail="Enter your full name to accept this invitation.")
+        user = User(
+            id=str(uuid4()),
+            email=invitation.email,
+            full_name=payload.full_name.strip(),
+            password_hash=hash_password(payload.password),
+            is_verified=True,
+        )
+        db.add(user)
+        db.flush()
+    else:
+        authenticated = authenticated_user if (
+            authenticated_user is not None and authenticated_user.email == invitation.email
+        ) else authenticate_user(db, invitation.email, payload.password or "")
+        if authenticated is None:
+            raise HTTPException(status_code=401, detail="Sign in with the invited email and password to continue.")
+        user = authenticated
+        user.is_verified = True
+
+    membership = db.scalar(
+        select(CompanyMembership).where(
+            CompanyMembership.company_id == invitation.company_id,
+            CompanyMembership.user_id == user.id,
+        )
+    )
+    if membership is None:
+        membership = CompanyMembership(
+            id=str(uuid4()), company_id=invitation.company_id, user_id=user.id,
+            role=invitation.role, status="active", can_view=invitation.can_view,
+            can_edit=invitation.can_edit, can_download=invitation.can_download,
+            can_manage_members=invitation.can_manage_members,
+        )
+        db.add(membership)
+    else:
+        membership.is_active = True
+        membership.status = "active"
+        membership.role = invitation.role
+        membership.can_view = invitation.can_view
+        membership.can_edit = invitation.can_edit
+        membership.can_download = invitation.can_download
+        membership.can_manage_members = invitation.can_manage_members
+    if user.default_company_id is None:
+        user.default_company_id = invitation.company_id
+    invitation.accepted_at = datetime.now(timezone.utc)
+    invitation.status = "accepted"
+    company = db.get(Company, invitation.company_id)
+    if company is None:
+        raise HTTPException(status_code=400, detail="This invitation is invalid or expired.")
+    write_audit_log(
+        db, user=user, company=company, action="invitation.accepted",
+        resource_type="invitation", resource_id=invitation.id,
+    )
+    db.commit()
+    response.set_cookie(
+        key=SESSION_COOKIE,
+        value=create_session_token(user),
+        max_age=SESSION_TTL_SECONDS,
+        httponly=True,
+        secure=APP_ENV == "production",
+        samesite="strict",
+        path="/",
+    )
+    return {"user": auth_user_payload(db, user)}
+
+
+@app.get("/api/companies/{company_id}/audit-log", tags=["organizations"])
+def list_company_audit_log(
+    company_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_company_user),
+) -> dict:
+    require_selected_company(user, company_id)
+    require_company_permission(user, "can_manage_members")
+    events = db.scalars(
+        select(AuditLog).where(AuditLog.company_id == company_id)
+        .order_by(AuditLog.created_at.desc()).limit(100)
+    ).all()
+    return {"events": [
+        {
+            "id": event.id, "actor_id": event.actor_id, "action": event.action,
+            "resource_type": event.resource_type, "resource_id": event.resource_id,
+            "details": event.details, "created_at": iso_utc(event.created_at),
+        }
+        for event in events
+    ]}
+
+
 @app.post("/api/screenings", status_code=status.HTTP_201_CREATED, tags=["screenings"])
 async def create_screening(
     screening_name: str = Form(..., min_length=2, max_length=160),
@@ -520,8 +1352,9 @@ async def create_screening(
     job_description_file: UploadFile | None = File(default=None),
     evaluation_criteria: str = Form(default="[]"),
     db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_company_user),
 ):
+    require_company_permission(user, "can_edit")
     if len(job_description_text) > MAX_JOB_DESCRIPTION_CHARS:
         raise HTTPException(status_code=422, detail=f"Keep the job description under {MAX_JOB_DESCRIPTION_CHARS:,} characters.")
     criteria = parse_evaluation_criteria(evaluation_criteria)
@@ -539,6 +1372,7 @@ async def create_screening(
         id=str(uuid4()),
         name=screening_name,
         owner_id=user.id,
+        company_id=getattr(user, "active_company_id", None),
         job_description_text=clean_job_text,
         scoring_config=default_matching_weights().model_dump(),
     )
@@ -566,6 +1400,12 @@ async def create_screening(
 
         await store_resume_uploads(screening, resumes, uploaded_paths)
         db.add(screening)
+        company = db.get(Company, screening.company_id) if screening.company_id else None
+        if company is not None:
+            write_audit_log(
+                db, user=user, company=company, action="screening.created",
+                resource_type="screening", resource_id=screening.id,
+            )
         db.commit()
         db.refresh(screening)
         return screening_payload(screening)
@@ -587,9 +1427,10 @@ def list_screenings(
     limit: int = Query(default=25, ge=1, le=100),
     search: str = Query(default="", max_length=120),
     db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_company_user),
 ):
-    conditions = [Screening.owner_id == user.id]
+    require_company_permission(user, "can_view")
+    conditions = [screening_company_scope(user)]
     clean_search = search.strip()
     if clean_search:
         pattern = f"%{clean_search}%"
@@ -666,12 +1507,13 @@ def retry_screening(
     screening_id: str,
     mode: Literal["all", "failed"],
     db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_company_user),
 ):
+    require_company_permission(user, "can_edit")
     screening = db.scalar(
         select(Screening.id).where(
             Screening.id == screening_id,
-            Screening.owner_id == user.id,
+            screening_company_scope(user),
         )
     )
     if screening is None:
@@ -714,12 +1556,13 @@ def retry_screening(
 def stop_screening(
     screening_id: str,
     db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_company_user),
 ):
+    require_company_permission(user, "can_edit")
     screening = db.scalar(
         select(Screening.id).where(
             Screening.id == screening_id,
-            Screening.owner_id == user.id,
+            screening_company_scope(user),
         )
     )
     if screening is None:
@@ -781,15 +1624,16 @@ async def upload_screening_resumes(
     screening_id: str,
     resumes: list[UploadFile] = File(...),
     db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_company_user),
 ):
+    require_company_permission(user, "can_edit")
     screening = db.scalar(
         select(Screening)
         .options(
             selectinload(Screening.resumes).selectinload(Resume.evaluation),
                 selectinload(Screening.rubric),
         )
-        .where(Screening.id == screening_id, Screening.owner_id == user.id)
+        .where(Screening.id == screening_id, screening_company_scope(user))
     )
     if screening is None:
         raise HTTPException(status_code=404, detail="Screening not found.")
@@ -814,15 +1658,16 @@ async def upload_screening_resumes(
 def get_screening(
     screening_id: str,
     db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_company_user),
 ):
+    require_company_permission(user, "can_view")
     screening = db.scalar(
         select(Screening)
         .options(
             selectinload(Screening.resumes).selectinload(Resume.evaluation),
                 selectinload(Screening.rubric),
         )
-        .where(Screening.id == screening_id, Screening.owner_id == user.id)
+        .where(Screening.id == screening_id, screening_company_scope(user))
     )
     if screening is None:
         raise HTTPException(status_code=404, detail="Screening not found.")
@@ -834,12 +1679,13 @@ def update_screening_requirements(
     screening_id: str,
     payload: UpdateRequirementsRequest,
     db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_company_user),
 ):
+    require_company_permission(user, "can_edit")
     screening = db.scalar(
         select(Screening)
         .options(selectinload(Screening.resumes).selectinload(Resume.evaluation))
-        .where(Screening.id == screening_id, Screening.owner_id == user.id)
+        .where(Screening.id == screening_id, screening_company_scope(user))
     )
     if screening is None:
         raise HTTPException(status_code=404, detail="Screening not found.")
@@ -882,15 +1728,16 @@ def update_screening(
     screening_id: str,
     payload: UpdateScreeningRequest,
     db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_company_user),
 ):
+    require_company_permission(user, "can_edit")
     screening = db.scalar(
         select(Screening)
         .options(
             selectinload(Screening.resumes).selectinload(Resume.evaluation),
             selectinload(Screening.rubric),
         )
-        .where(Screening.id == screening_id, Screening.owner_id == user.id)
+        .where(Screening.id == screening_id, screening_company_scope(user))
     )
     if screening is None:
         raise HTTPException(status_code=404, detail="Screening not found.")
@@ -947,6 +1794,12 @@ def update_screening(
         resume.evaluation.available_at = None
         resume.evaluation.updated_at = now
 
+    company = db.get(Company, screening.company_id) if screening.company_id else None
+    if company is not None:
+        write_audit_log(
+            db, user=user, company=company, action="screening.updated",
+            resource_type="screening", resource_id=screening.id,
+        )
     db.commit()
     if previous_job_file is not None:
         previous_job_file.unlink(missing_ok=True)
@@ -957,12 +1810,13 @@ def update_screening(
 def delete_screening(
     screening_id: str,
     db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_company_user),
 ):
+    require_company_permission(user, "can_edit")
     screening = db.scalar(
         select(Screening)
         .options(selectinload(Screening.resumes))
-        .where(Screening.id == screening_id, Screening.owner_id == user.id)
+        .where(Screening.id == screening_id, screening_company_scope(user))
     )
     if screening is None:
         raise HTTPException(status_code=404, detail="Screening not found.")
@@ -970,6 +1824,12 @@ def delete_screening(
     stored_files = [UPLOAD_DIR / resume.storage_name for resume in screening.resumes]
     if screening.job_description_storage_name:
         stored_files.append(UPLOAD_DIR / screening.job_description_storage_name)
+    company = db.get(Company, screening.company_id) if screening.company_id else None
+    if company is not None:
+        write_audit_log(
+            db, user=user, company=company, action="screening.deleted",
+            resource_type="screening", resource_id=screening.id,
+        )
     db.delete(screening)
     db.commit()
     for file_path in stored_files:
@@ -981,18 +1841,27 @@ def delete_screening(
 def download_resume(
     resume_id: str,
     db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_company_user),
 ):
+    require_company_permission(user, "can_download")
     resume = db.scalar(
         select(Resume)
         .join(Screening)
-        .where(Resume.id == resume_id, Screening.owner_id == user.id)
+        .where(Resume.id == resume_id, screening_company_scope(user))
     )
     if resume is None:
         raise HTTPException(status_code=404, detail="Resume not found.")
     file_path = UPLOAD_DIR / resume.storage_name
     if not file_path.is_file():
         raise HTTPException(status_code=404, detail="Stored resume file is missing.")
+    active_company_id = getattr(user, "active_company_id", None)
+    company = db.get(Company, active_company_id) if active_company_id else None
+    if company is not None:
+        write_audit_log(
+            db, user=user, company=company, action="resume.downloaded",
+            resource_type="resume", resource_id=resume.id,
+        )
+        db.commit()
     return FileResponse(file_path, media_type=resume.content_type or "application/octet-stream", filename=resume.filename)
 
 
@@ -1001,13 +1870,14 @@ def review_resume_score(
     resume_id: str,
     payload: ReviewOverrideRequest,
     db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_company_user),
 ):
+    require_company_permission(user, "can_edit")
     evaluation = db.scalar(
         select(ResumeEvaluation)
         .join(Resume)
         .join(Screening)
-        .where(Resume.id == resume_id, Screening.owner_id == user.id)
+        .where(Resume.id == resume_id, screening_company_scope(user))
     )
     if evaluation is None:
         raise HTTPException(status_code=404, detail="Candidate evaluation not found.")
@@ -1017,6 +1887,13 @@ def review_resume_score(
     evaluation.reviewer_override_note = payload.note.strip()
     evaluation.reviewer_id = user.id
     evaluation.reviewer_updated_at = datetime.now(timezone.utc)
+    active_company_id = getattr(user, "active_company_id", None)
+    company = db.get(Company, active_company_id) if active_company_id else None
+    if company is not None:
+        write_audit_log(
+            db, user=user, company=company, action="candidate.reviewed",
+            resource_type="resume", resource_id=resume_id,
+        )
     db.commit()
     return {
         "resume_id": resume_id,
@@ -1031,16 +1908,25 @@ def review_resume_score(
 def download_job_description(
     screening_id: str,
     db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_company_user),
 ):
+    require_company_permission(user, "can_download")
     screening = db.scalar(
-        select(Screening).where(Screening.id == screening_id, Screening.owner_id == user.id)
+        select(Screening).where(Screening.id == screening_id, screening_company_scope(user))
     )
     if screening is None or not screening.job_description_storage_name:
         raise HTTPException(status_code=404, detail="Uploaded job description not found.")
     file_path = UPLOAD_DIR / screening.job_description_storage_name
     if not file_path.is_file():
         raise HTTPException(status_code=404, detail="Stored job description file is missing.")
+    active_company_id = getattr(user, "active_company_id", None)
+    company = db.get(Company, active_company_id) if active_company_id else None
+    if company is not None:
+        write_audit_log(
+            db, user=user, company=company, action="job_description.downloaded",
+            resource_type="screening", resource_id=screening.id,
+        )
+        db.commit()
     return FileResponse(
         file_path,
         media_type=screening.job_description_content_type or "application/octet-stream",
@@ -1052,8 +1938,9 @@ def download_job_description(
 def bulk_delete_resumes(
     payload: BulkDeleteResumes,
     db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_company_user),
 ):
+    require_company_permission(user, "can_edit")
     resume_ids = list(dict.fromkeys(payload.resume_ids))
     if not resume_ids:
         raise HTTPException(status_code=422, detail="Select at least one resume to remove.")
@@ -1061,11 +1948,18 @@ def bulk_delete_resumes(
         db.scalars(
             select(Resume)
             .join(Screening)
-            .where(Resume.id.in_(resume_ids), Screening.owner_id == user.id)
+            .where(Resume.id.in_(resume_ids), screening_company_scope(user))
         ).all()
     )
     for record in records:
         db.delete(record)
+    active_company_id = getattr(user, "active_company_id", None)
+    company = db.get(Company, active_company_id) if active_company_id else None
+    if company is not None:
+        write_audit_log(
+            db, user=user, company=company, action="resumes.deleted",
+            resource_type="resume_batch", details={"count": len(records)},
+        )
     db.commit()
     for record in records:
         (UPLOAD_DIR / record.storage_name).unlink(missing_ok=True)

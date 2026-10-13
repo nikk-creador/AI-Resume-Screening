@@ -26,6 +26,7 @@ import { useAllScreenings } from '../hooks/useScreenings';
 const { Paragraph, Text, Title } = Typography;
 
 interface AIServicePanelProps {
+  canEdit: boolean;
   screeningId: string | null;
   screeningName: string;
   resumes: ResumeRow[];
@@ -39,6 +40,7 @@ interface AIServicePanelProps {
 }
 
 export default function AIServicePanel({
+  canEdit,
   screeningId,
   screeningName,
   resumes,
@@ -180,22 +182,24 @@ export default function AIServicePanel({
           >
             View
           </Button>
-          <Popconfirm
-            title={`Delete “${screening.name}”?`}
-            description={`Reference: ${screening.id}. This permanently deletes its files and results.`}
-            okText="Delete screening"
-            cancelText="Cancel"
-            okButtonProps={{ danger: true, loading: deletingId === screening.id }}
-            onConfirm={() => removeScreeningFromList(screening.id)}
-          >
-            <Button
-              size="small"
-              danger
-              icon={<DeleteOutlined />}
-              loading={deletingId === screening.id}
-              aria-label={`Delete screening ${screening.name}`}
-            />
-          </Popconfirm>
+          {canEdit && (
+            <Popconfirm
+              title={`Delete “${screening.name}”?`}
+              description={`Reference: ${screening.id}. This permanently deletes its files and results.`}
+              okText="Delete screening"
+              cancelText="Cancel"
+              okButtonProps={{ danger: true, loading: deletingId === screening.id }}
+              onConfirm={() => removeScreeningFromList(screening.id)}
+            >
+              <Button
+                size="small"
+                danger
+                icon={<DeleteOutlined />}
+                loading={deletingId === screening.id}
+                aria-label={`Delete screening ${screening.name}`}
+              />
+            </Popconfirm>
+          )}
         </Space>
       ),
     },
@@ -261,7 +265,7 @@ export default function AIServicePanel({
           <Button type="primary" onClick={runTest} loading={testMutation.isPending}>
             Test AI service
           </Button>
-          {screeningId && activeCount > 0 && (
+          {canEdit && screeningId && activeCount > 0 && (
             <Popconfirm
               title="Stop this screening?"
               description="Queued evaluations will stop. Any model call already running may finish, but its result will not be saved."
@@ -275,7 +279,7 @@ export default function AIServicePanel({
               </Button>
             </Popconfirm>
           )}
-          {screeningId && (
+          {canEdit && screeningId && (
             <Popconfirm
               title={`Delete “${screeningName}”?`}
               description={`Reference: ${screeningId}. This permanently removes its candidate files, job description, and evaluation results.`}
@@ -310,6 +314,7 @@ export default function AIServicePanel({
               <Input.TextArea
                 aria-label={`Requirement ${index + 1}`}
                 value={requirement.text}
+                disabled={!canEdit}
                 autoSize={{ minRows: 1, maxRows: 3 }}
                 onChange={(event) =>
                   setDraftRequirements((items) =>
@@ -331,6 +336,7 @@ export default function AIServicePanel({
               <Select
                 aria-label={`Requirement class ${index + 1}`}
                 value={requirement.requirement_class}
+                disabled={!canEdit}
                 options={[
                   { value: 'must_have', label: 'Must have' },
                   { value: 'nice_to_have', label: 'Nice to have' },
@@ -343,35 +349,41 @@ export default function AIServicePanel({
                   )
                 }
               />
-              <Button
-                danger
-                onClick={() => setDraftRequirements((items) => items.filter((_, i) => i !== index))}
-              >
-                Remove
-              </Button>
+              {canEdit && (
+                <Button
+                  danger
+                  onClick={() =>
+                    setDraftRequirements((items) => items.filter((_, i) => i !== index))
+                  }
+                >
+                  Remove
+                </Button>
+              )}
             </Space>
           ))}
           <Space wrap>
-            <Button
-              icon={<PlusOutlined />}
-              onClick={() =>
-                setDraftRequirements((items) => [
-                  ...items,
-                  {
-                    id: crypto.randomUUID(),
-                    text: 'New requirement',
-                    normalized_concept: 'new requirement',
-                    requirement_type: 'skill',
-                    requirement_class: 'must_have',
-                    priority: 3,
-                    evidence_needed: 'Direct resume evidence',
-                    minimum_years: null,
-                  },
-                ])
-              }
-            >
-              Add requirement
-            </Button>
+            {canEdit && (
+              <Button
+                icon={<PlusOutlined />}
+                onClick={() =>
+                  setDraftRequirements((items) => [
+                    ...items,
+                    {
+                      id: crypto.randomUUID(),
+                      text: 'New requirement',
+                      normalized_concept: 'new requirement',
+                      requirement_type: 'skill',
+                      requirement_class: 'must_have',
+                      priority: 3,
+                      evidence_needed: 'Direct resume evidence',
+                      minimum_years: null,
+                    },
+                  ])
+                }
+              >
+                Add requirement
+              </Button>
+            )}
             <Button
               type="primary"
               loading={savingRequirements}

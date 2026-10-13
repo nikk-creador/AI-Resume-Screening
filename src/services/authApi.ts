@@ -1,9 +1,22 @@
-import { ApiError, apiRequest } from './api/client';
+import { ApiError, apiRequest, getActiveCompanyId, setActiveCompanyId } from './api/client';
 import { API_TIMEOUT_MS } from './api/config';
 import type { AuthUser } from '../types/auth';
 
 interface AuthResponse {
   user: AuthUser;
+}
+
+function applyCompanyPreference(user: AuthUser): AuthUser {
+  const validCompanyIds = new Set(user.companies.map((company) => company.id));
+  const savedCompanyId = getActiveCompanyId();
+  const companyId =
+    savedCompanyId && validCompanyIds.has(savedCompanyId)
+      ? savedCompanyId
+      : user.default_company_id && validCompanyIds.has(user.default_company_id)
+        ? user.default_company_id
+        : (user.companies[0]?.id ?? null);
+  setActiveCompanyId(companyId);
+  return user;
 }
 
 export interface AuthActionResponse {
@@ -58,7 +71,7 @@ export async function loadCurrentUser(): Promise<AuthUser | null> {
       { timeoutMs: API_TIMEOUT_MS, notifyUnauthorized: false },
     );
     if (!response) throw new ApiError('Could not verify your session.', 500);
-    return response.user;
+    return applyCompanyPreference(response.user);
   } catch (error) {
     if (error instanceof ApiError && error.status === 401) return null;
     throw error;
@@ -72,7 +85,7 @@ export async function signIn(email: string, password: string): Promise<AuthUser>
     { timeoutMs: API_TIMEOUT_MS, notifyUnauthorized: false },
   );
   if (!response) throw new ApiError('Could not start your session.', 500);
-  return response.user;
+  return applyCompanyPreference(response.user);
 }
 
 export async function signInWithGoogle(credential: string): Promise<AuthUser> {
@@ -82,7 +95,7 @@ export async function signInWithGoogle(credential: string): Promise<AuthUser> {
     { timeoutMs: API_TIMEOUT_MS, notifyUnauthorized: false },
   );
   if (!response) throw new ApiError('Could not start your Google session.', 500);
-  return response.user;
+  return applyCompanyPreference(response.user);
 }
 
 export async function signOut(): Promise<void> {

@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy import Boolean
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -17,6 +17,7 @@ class Screening(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     name: Mapped[str] = mapped_column(String(160), default="Untitled screening", nullable=False)
     owner_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"), index=True, nullable=True)
+    company_id: Mapped[str | None] = mapped_column(ForeignKey("companies.id"), index=True, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
     job_description_text: Mapped[str] = mapped_column(Text, default="", nullable=False)
     job_requirements: Mapped[list[dict] | None] = mapped_column(JSON, nullable=True)
@@ -95,6 +96,94 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(320), unique=True, index=True, nullable=False)
     full_name: Mapped[str] = mapped_column(String(120), nullable=False)
     password_hash: Mapped[str] = mapped_column(String(512), nullable=False)
+    default_company_id: Mapped[str | None] = mapped_column(ForeignKey("companies.id"), nullable=True)
     is_active: Mapped[bool] = mapped_column(default=True, nullable=False)
     is_verified: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+
+class Organization(Base):
+    __tablename__ = "organizations"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    name: Mapped[str] = mapped_column(String(160), nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+
+class Company(Base):
+    __tablename__ = "companies"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), index=True, nullable=False)
+    parent_company_id: Mapped[str | None] = mapped_column(ForeignKey("companies.id"), nullable=True)
+    name: Mapped[str] = mapped_column(String(160), nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+
+class OrganizationMembership(Base):
+    __tablename__ = "organization_memberships"
+    __table_args__ = (UniqueConstraint("organization_id", "user_id"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), index=True, nullable=False)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True, nullable=False)
+    role: Mapped[str] = mapped_column(String(32), default="member", nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default="active", nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+
+class CompanyMembership(Base):
+    __tablename__ = "company_memberships"
+    __table_args__ = (UniqueConstraint("company_id", "user_id"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    company_id: Mapped[str] = mapped_column(ForeignKey("companies.id"), index=True, nullable=False)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True, nullable=False)
+    role: Mapped[str] = mapped_column(String(32), default="recruiter", nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default="active", nullable=False)
+    can_view: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    can_edit: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    can_download: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    can_manage_members: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+
+class CompanyInvitation(Base):
+    __tablename__ = "company_invitations"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    company_id: Mapped[str] = mapped_column(ForeignKey("companies.id"), index=True, nullable=False)
+    email: Mapped[str] = mapped_column(String(320), index=True, nullable=False)
+    token_digest: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    token_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    invited_by_id: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False)
+    invited_by: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False)
+    role: Mapped[str] = mapped_column(String(32), default="recruiter", nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default="pending", nullable=False)
+    can_view: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    can_edit: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    can_download: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    can_manage_members: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+
+class AuditLog(Base):
+    __tablename__ = "audit_logs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    organization_id: Mapped[str | None] = mapped_column(ForeignKey("organizations.id"), index=True, nullable=True)
+    company_id: Mapped[str | None] = mapped_column(ForeignKey("companies.id"), index=True, nullable=True)
+    actor_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False)
+    action: Mapped[str] = mapped_column(String(80), nullable=False)
+    resource_type: Mapped[str] = mapped_column(String(80), nullable=False)
+    resource_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    details: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)

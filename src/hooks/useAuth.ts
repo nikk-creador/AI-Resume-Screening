@@ -1,4 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+
+import { ApiError } from '../services/api/client';
 import { queryKeys } from '../services/api/queryKeys';
 import {
   completeEmailVerification,
@@ -10,7 +12,6 @@ import {
   signInWithGoogle,
   signOut,
 } from '../services/authApi';
-import { ApiError } from '../services/api/client';
 
 const currentUserKey = ['auth', 'current-user'] as const;
 

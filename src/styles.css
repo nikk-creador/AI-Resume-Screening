@@ -53,17 +53,20 @@ textarea {
   z-index: 20;
   top: 0;
   min-height: 68px;
-  background: var(--color-surface);
+  background: color-mix(in srgb, var(--color-surface) 88%, var(--color-transparent));
+  backdrop-filter: blur(16px) saturate(160%);
+  -webkit-backdrop-filter: blur(16px) saturate(160%);
   border-bottom: 1px solid var(--color-border);
+  box-shadow: 0 14px 34px -30px var(--color-primary-shadow);
 }
 .topbar-inner {
   width: min(1240px, calc(100% - 48px));
   min-height: 68px;
   margin: auto;
-  display: flex;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  justify-content: space-between;
-  gap: 24px;
+  gap: 20px;
 }
 .brand {
   display: inline-flex;
@@ -75,6 +78,10 @@ textarea {
   font-size: 17px;
   font-weight: 800;
   letter-spacing: -0.04em;
+  transition: opacity 0.18s ease;
+}
+.brand:hover {
+  opacity: 0.82;
 }
 .brand-accent {
   color: var(--color-primary);
@@ -84,62 +91,109 @@ textarea {
   place-items: center;
   width: 34px;
   height: 34px;
-  border-radius: 10px;
+  border-radius: 11px;
   color: var(--color-surface);
-  background: var(--color-primary);
+  background: linear-gradient(
+    140deg,
+    var(--color-primary),
+    color-mix(in srgb, var(--color-primary) 52%, var(--color-auth-accent))
+  );
   font-size: 15px;
   font-weight: 800;
-  box-shadow: 0 5px 12px var(--color-primary-shadow);
-}
-.topbar-right {
-  display: flex;
-  align-items: center;
-  gap: 22px;
-  min-width: 0;
-}
-.topbar-navigation,
-.topbar-account {
-  display: flex;
-  align-items: center;
+  box-shadow: 0 8px 18px -7px var(--color-primary-shadow);
 }
 .topbar-navigation {
-  gap: 5px;
-  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-self: center;
+  gap: 3px;
+  padding: 3px;
   border: 1px solid var(--color-border);
-  border-radius: 9px;
+  border-radius: 11px;
   background: var(--color-subtle-surface);
 }
-.topbar-navigation .ant-btn,
-.topbar-sign-out.ant-btn {
-  height: 36px;
-  border-radius: 6px;
+.topbar-navigation .ant-btn {
+  height: 34px;
+  border-radius: 8px;
   font-size: 12px;
   font-weight: 600;
 }
 .topbar-navigation .topbar-nav-link.ant-btn {
-  padding-inline: 11px;
-  color: var(--color-workspace-muted);
+  padding-inline: 12px;
+  color: var(--color-text-muted);
+  transition:
+    color 0.18s ease,
+    background 0.18s ease;
+}
+.topbar-navigation .topbar-nav-link.ant-btn:not(.is-active):hover {
+  color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-surface) 70%, var(--color-transparent));
 }
 .topbar-navigation .topbar-nav-link.ant-btn.is-active {
   color: var(--color-primary);
   background: var(--color-surface);
-  box-shadow: 0 1px 3px var(--color-surface-shadow);
-}
-.topbar-navigation .topbar-new-screening.ant-btn {
-  padding-inline: 13px;
-  box-shadow: none;
+  box-shadow:
+    0 1px 3px var(--color-surface-shadow),
+    0 0 0 1px color-mix(in srgb, var(--color-primary) 14%, var(--color-transparent));
 }
 .topbar-account {
-  gap: 9px;
+  display: inline-flex;
+  align-items: center;
+  justify-self: end;
+  gap: 8px;
   min-width: 0;
-  padding-left: 17px;
-  border-left: 1px solid var(--color-border);
+  padding: 5px 10px 5px 5px;
+  border: 1px solid var(--color-border);
+  border-radius: 11px;
+  color: inherit;
+  background: var(--color-surface);
+  box-shadow: 0 1px 2px var(--color-surface-shadow);
+  cursor: pointer;
+  transition:
+    border-color 0.18s ease,
+    box-shadow 0.18s ease;
+}
+.topbar-account:hover {
+  border-color: var(--color-border-pale);
+  box-shadow: 0 4px 12px -5px var(--color-primary-shadow);
+}
+.topbar-account:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--color-primary) 45%, var(--color-transparent));
+  outline-offset: 2px;
 }
 .topbar-account .workspace-label {
   overflow: hidden;
   max-width: 140px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.topbar-account-caret {
+  color: var(--color-caption);
+  font-size: 10px;
+  transition: color 0.18s ease;
+}
+.topbar-account:hover .topbar-account-caret {
+  color: var(--color-primary);
+}
+.topbar-account-menu .ant-dropdown-menu {
+  min-width: 252px;
+  padding: 6px;
+  border-radius: 12px;
+}
+.topbar-account-menu .ant-dropdown-menu-item {
+  border-radius: 8px;
+}
+.topbar-account-menu .ant-dropdown-menu-item-group-title {
+  color: var(--color-caption);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.topbar-account-menu .ant-dropdown-menu-item-selected {
+  color: var(--color-primary);
+  background: var(--color-primary-tint);
+  font-weight: 600;
 }
 .workspace-label {
   color: var(--color-workspace-muted);
@@ -152,11 +206,33 @@ textarea {
   flex: 0 0 30px;
   width: 30px;
   height: 30px;
-  border-radius: 8px;
-  color: var(--color-secondary);
-  background: var(--color-subtle-surface);
+  border-radius: 9px;
+  color: var(--color-surface);
+  background: linear-gradient(
+    140deg,
+    var(--color-primary),
+    color-mix(in srgb, var(--color-primary) 52%, var(--color-auth-accent))
+  );
   font-size: 11px;
   font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+@media (max-width: 767px) {
+  .topbar-navigation .topbar-button-label {
+    display: none;
+  }
+  .topbar-navigation .ant-btn {
+    flex: 0 0 36px;
+    width: 36px;
+    min-width: 36px;
+    height: 36px;
+    padding-inline: 0;
+  }
+  .topbar-account {
+    gap: 4px;
+    padding: 3px 8px 3px 4px;
+  }
 }
 
 .main-content {
@@ -1412,7 +1488,7 @@ section.section-card.results-card {
   }
   .topbar-account {
     gap: 5px;
-    padding-left: 7px;
+    padding: 3px 5px;
   }
   .workspace-avatar {
     flex-basis: 28px;
@@ -1422,6 +1498,36 @@ section.section-card.results-card {
 }
 
 @media (max-width: 900px) {
+  .topbar-inner {
+    display: grid;
+    grid-template-areas:
+      'brand account'
+      'company navigation';
+    grid-template-columns: minmax(0, 1fr) auto;
+    column-gap: 12px;
+    row-gap: 7px;
+    padding-block: 9px;
+  }
+  .topbar-right {
+    display: contents;
+  }
+  .brand {
+    grid-area: brand;
+  }
+  .topbar-company-context {
+    grid-area: company;
+  }
+  .topbar-navigation {
+    grid-area: navigation;
+    justify-self: end;
+  }
+  .topbar-account {
+    grid-area: account;
+    justify-self: end;
+  }
+  .topbar-company-select {
+    width: min(230px, calc(100vw - 430px));
+  }
   .auth-layout {
     grid-template-columns: minmax(0, 1fr) minmax(340px, 0.92fr);
     gap: 36px;
@@ -1434,6 +1540,32 @@ section.section-card.results-card {
   }
   .auth-card .ant-card-body {
     padding: 30px 26px;
+  }
+}
+
+@media (max-width: 600px) {
+  .topbar-company-context {
+    gap: 4px;
+    padding: 3px;
+  }
+  .topbar-company-select {
+    width: clamp(110px, calc(100vw - 200px), 150px);
+  }
+  .topbar-company-context .workspace-label {
+    max-width: clamp(100px, calc(100vw - 220px), 150px);
+  }
+  .topbar-company-context .ant-btn {
+    flex: 0 0 32px;
+    width: 32px;
+    min-width: 32px;
+    height: 32px;
+    padding-inline: 0;
+  }
+  .topbar-company-context .topbar-button-label {
+    display: none;
+  }
+  .topbar-account {
+    padding: 3px 5px;
   }
 }
 

@@ -17,9 +17,10 @@ const PAGE_SIZE = 25;
 interface ScreeningsListProps {
   onOpen: (screeningId: string) => void;
   onNewScreening: () => void;
+  canEdit: boolean;
 }
 
-export default function ScreeningsList({ onOpen, onNewScreening }: ScreeningsListProps) {
+export default function ScreeningsList({ onOpen, onNewScreening, canEdit }: ScreeningsListProps) {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [searchInput, setSearchInput] = useState('');
@@ -152,39 +153,40 @@ export default function ScreeningsList({ onOpen, onNewScreening }: ScreeningsLis
       key: 'action',
       width: 108,
       align: 'right',
-      render: (_, screening) => (
-        <div className="screening-row-actions">
-          <Button
-            type="text"
-            icon={<EditOutlined />}
-            title="Edit screening"
-            aria-label="Edit screening"
-            loading={loadingEditId === screening.id}
-            onClick={(event) => {
-              event.stopPropagation();
-              void openEditor(screening.id);
-            }}
-          />
-          <Popconfirm
-            title="Delete this screening?"
-            description="Uploaded resumes, results, and the job description file will be deleted."
-            okText="Delete screening"
-            cancelText="Cancel"
-            okButtonProps={{ danger: true, loading: deletingId === screening.id }}
-            onConfirm={() => removeScreening(screening.id)}
-          >
+      render: (_, screening) =>
+        canEdit ? (
+          <div className="screening-row-actions">
             <Button
               type="text"
-              danger
-              icon={<DeleteOutlined />}
-              title="Delete screening"
-              aria-label="Delete screening"
-              loading={deletingId === screening.id}
-              onClick={(event) => event.stopPropagation()}
+              icon={<EditOutlined />}
+              title="Edit screening"
+              aria-label="Edit screening"
+              loading={loadingEditId === screening.id}
+              onClick={(event) => {
+                event.stopPropagation();
+                void openEditor(screening.id);
+              }}
             />
-          </Popconfirm>
-        </div>
-      ),
+            <Popconfirm
+              title="Delete this screening?"
+              description="Uploaded resumes, results, and the job description file will be deleted."
+              okText="Delete screening"
+              cancelText="Cancel"
+              okButtonProps={{ danger: true, loading: deletingId === screening.id }}
+              onConfirm={() => removeScreening(screening.id)}
+            >
+              <Button
+                type="text"
+                danger
+                icon={<DeleteOutlined />}
+                title="Delete screening"
+                aria-label="Delete screening"
+                loading={deletingId === screening.id}
+                onClick={(event) => event.stopPropagation()}
+              />
+            </Popconfirm>
+          </div>
+        ) : null,
     },
   ];
 
@@ -196,9 +198,11 @@ export default function ScreeningsList({ onOpen, onNewScreening }: ScreeningsLis
           <Title level={3}>All screenings</Title>
           <Text type="secondary">Browse candidate rankings from previous roles.</Text>
         </div>
-        <Button type="primary" onClick={onNewScreening}>
-          New screening
-        </Button>
+        {canEdit && (
+          <Button type="primary" onClick={onNewScreening}>
+            New screening
+          </Button>
+        )}
       </div>
 
       {(error || listError) && (
@@ -259,7 +263,9 @@ export default function ScreeningsList({ onOpen, onNewScreening }: ScreeningsLis
               image={Empty.PRESENTED_IMAGE_SIMPLE}
               description={search ? 'No screenings match this search.' : 'No screenings yet'}
             >
-              {!search && <Button onClick={onNewScreening}>Create your first screening</Button>}
+              {!search && canEdit && (
+                <Button onClick={onNewScreening}>Create your first screening</Button>
+              )}
             </Empty>
           ),
         }}

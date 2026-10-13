@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import AppRouter from './routes/AppRouter';
+
 import {
   useCurrentUser,
   useGoogleSignIn,
@@ -10,6 +10,7 @@ import {
   useSignOut,
   useVerifyEmail,
 } from './hooks/useAuth';
+import AppRouter from './routes/AppRouter';
 import type { AuthActionResponse } from './services/authApi';
 import { getErrorMessage } from './services/screeningApi';
 

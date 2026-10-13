@@ -1,12 +1,13 @@
 import type { UploadProps } from 'antd';
-import { Button, Card, Input, Typography, Upload } from 'antd';
+import { Button, Card, Input, message, Typography, Upload } from 'antd';
 
 import {
   JOB_DESCRIPTION_EXTENSIONS,
   MAX_JOB_DESCRIPTION_CHARS,
   MIN_JOB_DESCRIPTION_WORDS,
 } from '../../../constants/screening';
-import { API_BASE_URL } from '../../../services/api/config';
+import { downloadApiFile } from '../../../services/api/client';
+import { getErrorMessage } from '../../../services/screeningApi';
 import type { JobDescriptionFile } from '../../../types/screening';
 import { getWordCount } from '../../../utils/screeningValidation';
 
@@ -21,6 +22,7 @@ interface JobDescriptionInputProps {
   onRemoveFile: () => void;
   onTextChange: (value: string) => void;
   screeningId: string | null;
+  canDownload: boolean;
 }
 
 export default function JobDescriptionInput({
@@ -32,11 +34,25 @@ export default function JobDescriptionInput({
   onRemoveFile,
   onTextChange,
   screeningId,
+  canDownload,
 }: JobDescriptionInputProps) {
+  const [messageApi, contextHolder] = message.useMessage();
+  const downloadJobDescription = async () => {
+    if (!screeningId || !jobFile) return;
+    try {
+      await downloadApiFile(
+        `/api/screenings/${encodeURIComponent(screeningId)}/job-description`,
+        jobFile.name,
+      );
+    } catch (downloadError: unknown) {
+      messageApi.error(getErrorMessage(downloadError, 'Could not download the job description.'));
+    }
+  };
   const wordCount = getWordCount(jobText);
   const textIsShort = jobText.trim().length > 0 && wordCount < MIN_JOB_DESCRIPTION_WORDS;
   return (
     <Card className="section-card job-card" variant="borderless">
+      {contextHolder}
       <div className="section-heading">
         <div className="section-number">02</div>
         <div>
@@ -61,12 +77,10 @@ export default function JobDescriptionInput({
           <span className="job-file-name" title={jobFile.name}>
             {jobFile.name}
           </span>
-          {!(jobFile instanceof File) && screeningId && (
-            <a
-              href={`${API_BASE_URL}/api/screenings/${encodeURIComponent(screeningId)}/job-description`}
-            >
+          {!(jobFile instanceof File) && screeningId && canDownload && (
+            <Button type="link" onClick={() => void downloadJobDescription()}>
               Download
-            </a>
+            </Button>
           )}
           {!disabled && (
             <Button type="text" size="small" onClick={onRemoveFile}>

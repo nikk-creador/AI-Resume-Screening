@@ -1,10 +1,13 @@
+import os
+import tempfile
 import unittest
 from unittest.mock import patch
 from urllib.parse import parse_qs, urlparse
 
 from fastapi import HTTPException, Response
+from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
 from backend.app.database import Base
 from backend.app.auth import authenticate_user, hash_password
@@ -16,6 +19,8 @@ from backend.app.main import (
     RegisterRequest,
     ResetPasswordRequest,
     TokenActionRequest,
+    app,
+    get_db,
     login,
     google_login,
     register_account,
@@ -23,7 +28,7 @@ from backend.app.main import (
     reset_password,
     verify_account,
 )
-from backend.app.models import User
+from backend.app.models import Company, CompanyMembership, Organization, OrganizationMembership, User
 
 
 class GoogleSignInTests(unittest.TestCase):
@@ -152,3 +157,67 @@ class AccountLifecycleTests(unittest.TestCase):
             with self.assertRaises(HTTPException) as error:
                 reset_password(request, db)
             self.assertEqual(error.exception.status_code, 400)
+
+    def test_login_route_returns_company_list_in_user_payload(self):
+        fd, db_path = tempfile.mkstemp(suffix=".sqlite")
+        os.close(fd)
+        os.unlink(db_path)
+        engine = create_engine(f"sqlite:///{db_path}")
+        Base.metadata.create_all(engine)
+        SessionFactory = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
+        with SessionFactory() as db:
+            organization = Organization(id="org-1", name="Example Org")
+            company = Company(id="company-1", organization_id=organization.id, name="Example Company")
+            user = User(
+                id="user-1",
+                email="recruiter@example.com",
+                full_name="Recruiter",
+                password_hash=hash_password("correct-horse-battery-staple"),
+                is_verified=True,
+                default_company_id=company.id,
+            )
+            db.add_all([organization, company, user])
+            db.add_all([
+                OrganizationMembership(
+                    id="org-member-1",
+                    organization_id=organization.id,
+                    user_id=user.id,
+                    role="admin",
+                    status="active",
+                    is_active=True,
+                ),
+                CompanyMembership(
+                    id="company-member-1",
+                    company_id=company.id,
+                    user_id=user.id,
+                    role="company_admin",
+                    status="active",
+                    can_view=True,
+                    can_edit=True,
+                    can_download=True,
+                    can_manage_members=True,
+                    is_active=True,
+                ),
+            ])
+            db.commit()
+
+        def override_get_db():
+            with Session(bind=engine) as db:
+                yield db
+
+        app.dependency_overrides[get_db] = override_get_db
+        try:
+            with TestClient(app) as client:
+                response = client.post(
+                    "/api/auth/login",
+                    json={"email": "recruiter@example.com", "password": "correct-horse-battery-staple"},
+                )
+            self.assertEqual(response.status_code, 200)
+            payload = response.json()
+            self.assertIsInstance(payload["user"]["companies"], list)
+            self.assertEqual(len(payload["user"]["companies"]), 1)
+        finally:
+            app.dependency_overrides.clear()
+            engine.dispose()
+            if os.path.exists(db_path):
+                os.remove(db_path)

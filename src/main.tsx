@@ -1,14 +1,17 @@
 import React from 'react';
-import { QueryClientProvider } from '@tanstack/react-query';
 import { ConfigProvider } from 'antd';
 import ReactDOM from 'react-dom/client';
 import { Provider } from 'react-redux';
 import { BrowserRouter } from 'react-router-dom';
+
 import { GoogleOAuthProvider } from '@react-oauth/google';
-import App from './App';
+import { QueryClientProvider } from '@tanstack/react-query';
+
 import { queryClient } from './lib/queryClient';
-import { store } from './store';
 import { COLORS } from './theme/colors';
+import App from './App';
+import { store } from './store';
+
 import '@fontsource-variable/dm-sans/wght.css';
 import '@fontsource-variable/space-grotesk/wght.css';
 import './styles.css';

@@ -6,6 +6,7 @@ import RequireAuth from './RequireAuth';
 import WorkspaceLayout from './WorkspaceLayout';
 import type { AuthMode } from '../features/auth/components/SignIn';
 import SignIn from '../features/auth/components/SignIn';
+import AcceptInvitationPage from '../features/organization/components/AcceptInvitationPage';
 import type { AuthActionResponse } from '../services/authApi';
 import type { AuthUser } from '../types/auth';
 
@@ -71,6 +72,7 @@ export default function AppRouter({
       <Route path={routes.forgotPassword} element={authPage('forgot')} />
       <Route path={routes.verifyEmail} element={authPage('verify')} />
       <Route path={routes.resetPassword} element={authPage('reset')} />
+      <Route path={routes.acceptInvitation} element={<AcceptInvitationPage user={user} />} />
       {!user && <Route path={routes.home} element={<Navigate to={routes.signIn} replace />} />}
       <Route element={<RequireAuth user={user} />}>
         {user && (
