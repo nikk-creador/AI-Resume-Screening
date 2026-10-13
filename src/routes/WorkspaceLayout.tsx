@@ -504,6 +504,10 @@ export default function WorkspaceLayout({
     setUploadError('');
   }
 
+  const handleScreeningDeleted = (deletedScreeningId: string) => {
+    if (deletedScreeningId === screeningId) startNewScreening();
+  };
+
   const handleNewScreening = () => {
     startNewScreening();
     navigate(routes.newScreening);
@@ -751,6 +755,7 @@ export default function WorkspaceLayout({
               <ScreeningsList
                 onOpen={openScreeningInList}
                 onNewScreening={handleNewScreening}
+                onDeleted={handleScreeningDeleted}
                 canEdit={activeCompany.permissions.edit}
               />
             </main>

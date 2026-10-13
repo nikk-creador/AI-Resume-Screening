@@ -206,6 +206,10 @@ def seed_demo_user(db: Session) -> None:
         )
         db.add(user)
         db.flush()
+    else:
+        if not verify_password(password, user.password_hash):
+            user.password_hash = hash_password(password)
+        user.is_verified = True
     db.execute(
         update(Screening).where(Screening.owner_id.is_(None)).values(owner_id=user.id)
     )

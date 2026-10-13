@@ -1,7 +1,6 @@
 import { lazy, Suspense } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 
-import NotFoundPage from './NotFoundPage';
 import { routes } from './paths';
 import RequireAuth from './RequireAuth';
 import type { AuthMode } from '../features/auth/components/SignIn';
@@ -93,7 +92,7 @@ export default function AppRouter({
           />
         )}
       </Route>
-      {!user && <Route path={routes.notFound} element={<NotFoundPage isAuthenticated={false} />} />}
+      {!user && <Route path="*" element={<Navigate to={routes.signIn} replace />} />}
     </Routes>
   );
 }

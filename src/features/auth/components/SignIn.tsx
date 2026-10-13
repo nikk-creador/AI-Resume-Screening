@@ -75,6 +75,7 @@ export default function SignIn({
   const visibleError = submitError || error;
   const token = searchParams.get('token') ?? '';
   const busy = loading || submitting;
+  const demoLogin = mode === 'signin' ? __DEMO_LOGIN__ : null;
 
   useEffect(() => {
     const container = googleButtonRef.current;
@@ -297,7 +298,7 @@ export default function SignIn({
                     autoComplete="username"
                     size="large"
                     prefix={<MailOutlined />}
-                    placeholder="you@company.com"
+                    placeholder={demoLogin?.email ?? 'you@company.com'}
                     disabled={busy}
                   />
                 </Form.Item>
@@ -313,10 +314,22 @@ export default function SignIn({
                     autoComplete="current-password"
                     size="large"
                     prefix={<LockOutlined />}
-                    placeholder="Enter your password"
+                    placeholder={demoLogin?.password ?? 'Enter your password'}
                     disabled={busy}
                   />
                 </Form.Item>
+                {demoLogin && (
+                  <Button
+                    className="auth-submit"
+                    size="large"
+                    block
+                    icon={<TeamOutlined />}
+                    loading={busy}
+                    onClick={() => void handleSubmit(demoLogin)}
+                  >
+                    Try demo account
+                  </Button>
+                )}
                 <Button
                   className="auth-submit"
                   type="primary"

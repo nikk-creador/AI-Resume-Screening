@@ -18,10 +18,16 @@ const PAGE_SIZE = 25;
 interface ScreeningsListProps {
   onOpen: (screeningId: string) => void;
   onNewScreening: () => void;
+  onDeleted: (screeningId: string) => void;
   canEdit: boolean;
 }
 
-export default function ScreeningsList({ onOpen, onNewScreening, canEdit }: ScreeningsListProps) {
+export default function ScreeningsList({
+  onOpen,
+  onNewScreening,
+  onDeleted,
+  canEdit,
+}: ScreeningsListProps) {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [searchInput, setSearchInput] = useState('');
@@ -85,6 +91,7 @@ export default function ScreeningsList({ onOpen, onNewScreening, canEdit }: Scre
     setDeletingId(screeningId);
     try {
       await deleteMutation.mutateAsync(screeningId);
+      onDeleted(screeningId);
       if (items.length === 1 && page > 1) setPage((current) => current - 1);
       setError('');
     } catch (cause: unknown) {
