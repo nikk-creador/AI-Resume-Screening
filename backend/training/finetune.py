@@ -4,6 +4,7 @@ import argparse
 import json
 from pathlib import Path
 import random
+import hashlib
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
@@ -24,13 +25,16 @@ EXTRACTION_PROMPTS = {
 class TrainingExample(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    reviewed: Literal[True]
+    reviewed: bool
+    synthetic: bool = False
     task: Literal["resume", "job_description"]
     source_text: str = Field(min_length=20, max_length=MAX_RESUME_TEXT_CHARS)
     target: dict
 
     @model_validator(mode="after")
     def validate_labels(self) -> TrainingExample:
+        if not self.reviewed and not self.synthetic:
+            raise ValueError("Unreviewed examples are allowed only when explicitly identified as synthetic.")
         if self.task == "job_description" and len(self.source_text) > 10_000:
             raise ValueError("Job-description training inputs must be 10,000 characters or shorter.")
         if self.task == "resume":
@@ -44,7 +48,11 @@ class TrainingExample(BaseModel):
         return self
 
 
-def load_training_examples(dataset_path: Path, minimum_examples: int = 100) -> list[TrainingExample]:
+def load_training_examples(
+    dataset_path: Path,
+    minimum_examples: int = 100,
+    allow_synthetic: bool = False,
+) -> list[TrainingExample]:
     if not dataset_path.is_file():
         raise ValueError(f"Training dataset not found: {dataset_path}")
     examples: list[TrainingExample] = []
@@ -52,7 +60,12 @@ def load_training_examples(dataset_path: Path, minimum_examples: int = 100) -> l
         if not line.strip():
             continue
         try:
-            examples.append(TrainingExample.model_validate_json(line))
+            example = TrainingExample.model_validate_json(line)
+            if not example.reviewed and not (allow_synthetic and example.synthetic):
+                raise ValueError("Unreviewed synthetic data requires --allow-synthetic-data.")
+            examples.append(example)
+        except ValueError as error:
+            raise ValueError(f"Invalid training example on line {line_number}: {error}") from error
         except ValidationError as error:
             raise ValueError(f"Invalid training example on line {line_number}: {error.errors()[0]['msg']}") from error
     if len(examples) < minimum_examples:
@@ -108,7 +121,12 @@ def _tokenize_examples(examples, tokenizer, max_length: int):
     return records
 
 
-def train(args: argparse.Namespace, examples: list[TrainingExample]) -> None:
+def train(
+    args: argparse.Namespace,
+    examples: list[TrainingExample],
+    validation_examples: list[TrainingExample] | None = None,
+    test_examples: list[TrainingExample] | None = None,
+) -> None:
     try:
         import torch
         from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
@@ -126,14 +144,31 @@ def train(args: argparse.Namespace, examples: list[TrainingExample]) -> None:
 
     if not torch.cuda.is_available():
         raise RuntimeError("CUDA GPU unavailable. Run QLoRA training inside WSL2 with CUDA enabled.")
-    if len(examples) < 20:
+    if validation_examples is None and len(examples) < 20:
         raise RuntimeError("At least 20 reviewed examples are required to create a train/validation split.")
-
-    shuffled = list(examples)
-    random.Random(args.seed).shuffle(shuffled)
-    validation_count = max(5, round(len(shuffled) * 0.1))
-    validation_examples = shuffled[:validation_count]
-    training_examples = shuffled[validation_count:]
+    if validation_examples is None:
+        shuffled = list(examples)
+        random.Random(args.seed).shuffle(shuffled)
+        validation_count = max(5, round(len(shuffled) * 0.1))
+        validation_examples = shuffled[:validation_count]
+        training_examples = shuffled[validation_count:]
+    else:
+        training_examples = examples
+    if not training_examples or not validation_examples:
+        raise RuntimeError("Training and validation splits must both contain reviewed examples.")
+    split_hashes = {
+        name: {hashlib.sha256(item.source_text.casefold().encode("utf-8")).digest() for item in split}
+        for name, split in (
+            ("training", training_examples),
+            ("validation", validation_examples),
+            ("test", test_examples or []),
+        )
+    }
+    split_names = ["training", "validation"] + (["test"] if test_examples else [])
+    for index, first in enumerate(split_names):
+        for second in split_names[index + 1 :]:
+            if split_hashes[first] & split_hashes[second]:
+                raise RuntimeError(f"Duplicate source text found across {first} and {second} splits.")
     compute_dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
     quantization = BitsAndBytesConfig(
         load_in_4bit=True,
@@ -210,7 +245,7 @@ def train(args: argparse.Namespace, examples: list[TrainingExample]) -> None:
             learning_rate=2e-4,
             warmup_ratio=0.05,
             logging_steps=5,
-            evaluation_strategy="epoch",
+            eval_strategy="epoch",
             save_strategy="epoch",
             load_best_model_at_end=True,
             metric_for_best_model="eval_loss",
@@ -229,6 +264,12 @@ def train(args: argparse.Namespace, examples: list[TrainingExample]) -> None:
         data_collator=collate,
     )
     trainer.train()
+    if test_examples:
+        test_dataset = TokenizedRecords(_tokenize_examples(test_examples, tokenizer, args.max_length))
+        test_metrics = trainer.evaluate(eval_dataset=test_dataset, metric_key_prefix="test")
+        (args.output_dir.resolve() / "test_metrics.json").write_text(
+            json.dumps(test_metrics, indent=2, default=float) + "\n", encoding="utf-8"
+        )
 
     adapter_dir = output_dir / "adapter"
     adapter_dir.mkdir(parents=True, exist_ok=True)
@@ -245,7 +286,14 @@ def train(args: argparse.Namespace, examples: list[TrainingExample]) -> None:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="QLoRA fine-tune the local resume evaluator.")
     parser.add_argument("--dataset", type=Path, required=True, help="Recruiter-reviewed JSONL examples.")
+    parser.add_argument("--validation-dataset", type=Path, help="Optional separate reviewed validation JSONL split.")
+    parser.add_argument("--test-dataset", type=Path, help="Optional held-out reviewed test JSONL split.")
     parser.add_argument("--minimum-examples", type=int, default=100)
+    parser.add_argument(
+        "--allow-synthetic-data",
+        action="store_true",
+        help="Allow unreviewed, explicitly synthetic examples for a controlled pilot.",
+    )
     parser.add_argument("--base-model", default="Qwen/Qwen2.5-1.5B-Instruct")
     parser.add_argument("--ollama-base-tag", default="qwen2.5:1.5b")
     parser.add_argument("--output-dir", type=Path, default=Path("backend/training/output/recruitai-screening"))
@@ -259,10 +307,22 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     try:
-        examples = load_training_examples(args.dataset, args.minimum_examples)
-        print(f"Validated {len(examples)} recruiter-reviewed examples.")
+        examples = load_training_examples(args.dataset, args.minimum_examples, args.allow_synthetic_data)
+        validation_examples = (
+            load_training_examples(args.validation_dataset, minimum_examples=1, allow_synthetic=args.allow_synthetic_data)
+            if args.validation_dataset else None
+        )
+        test_examples = (
+            load_training_examples(args.test_dataset, minimum_examples=1, allow_synthetic=args.allow_synthetic_data)
+            if args.test_dataset else None
+        )
+        print(
+            f"Validated {len(examples)} training examples"
+            + (f", {len(validation_examples)} validation examples" if validation_examples else "")
+            + (f", {len(test_examples)} held-out test examples." if test_examples else ".")
+        )
         if not args.validate_only:
-            train(args, examples)
+            train(args, examples, validation_examples, test_examples)
     except (RuntimeError, ValueError) as error:
         raise SystemExit(str(error)) from error
 

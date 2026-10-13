@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Button,
@@ -56,6 +56,7 @@ export default function AIServicePanel({
   const [savingRequirements, setSavingRequirements] = useState(false);
   const [result, setResult] = useState<AITestResponse | null>(null);
   const [error, setError] = useState('');
+  const [clockNow, setClockNow] = useState(() => Date.now());
   const queryClient = useQueryClient();
   const {
     data: screenings = [],
@@ -74,6 +75,7 @@ export default function AIServicePanel({
               key: resume.id,
               candidate: resume.name,
               status: evaluation.status,
+              createdAt: resume.createdAt,
               attempts: evaluation.attempts,
               error: evaluation.error_message,
               updatedAt: evaluation.updated_at,
@@ -87,6 +89,22 @@ export default function AIServicePanel({
     (row) => row.status === 'queued' || row.status === 'processing',
   ).length;
   const failedCount = rows.filter((row) => row.status === 'failed').length;
+
+  useEffect(() => {
+    if (activeCount === 0) return undefined;
+    const interval = window.setInterval(() => setClockNow(Date.now()), 1000);
+    return () => window.clearInterval(interval);
+  }, [activeCount]);
+
+  const formatElapsed = (startedAt: string) => {
+    const elapsedSeconds = Math.max(0, Math.floor((clockNow - Date.parse(startedAt)) / 1000));
+    const hours = Math.floor(elapsedSeconds / 3600);
+    const minutes = Math.floor((elapsedSeconds % 3600) / 60);
+    const seconds = elapsedSeconds % 60;
+    return hours > 0
+      ? `${hours}h ${minutes.toString().padStart(2, '0')}m ${seconds.toString().padStart(2, '0')}s`
+      : `${minutes}m ${seconds.toString().padStart(2, '0')}s`;
+  };
 
   const runTest = async () => {
     setError('');
@@ -124,6 +142,19 @@ export default function AIServicePanel({
         </Tag>
       ),
       width: 140,
+    },
+    {
+      title: 'Time until result',
+      key: 'timeUntilResult',
+      render: (_: unknown, row: (typeof rows)[number]) =>
+        row.status === 'queued' || row.status === 'processing' ? (
+          <Text>{formatElapsed(row.createdAt)} elapsed</Text>
+        ) : row.status === 'completed' ? (
+          <Text type="success">Ready</Text>
+        ) : (
+          <Text type="secondary">—</Text>
+        ),
+      width: 180,
     },
     { title: 'Attempts', dataIndex: 'attempts', key: 'attempts', width: 100 },
     {
@@ -417,8 +448,8 @@ export default function AIServicePanel({
 
       <Card className="ai-service-card" title={screeningName || 'Current screening activity'}>
         <Paragraph type="secondary">
-          This list refreshes while candidates are queued or processing. Resume contents and model
-          prompts are not displayed.
+          The counter shows elapsed time since upload while each candidate is queued or processing;
+          it stops when evaluation finishes. Resume contents and model prompts are not displayed.
         </Paragraph>
         <Table
           rowKey="key"

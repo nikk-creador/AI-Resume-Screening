@@ -817,6 +817,17 @@ section.section-card.results-card {
   gap: 12px;
   font-size: 12px;
 }
+.candidate-score-details {
+  max-width: min(560px, 75vw);
+  max-height: 70vh;
+  overflow: auto;
+}
+.candidate-assessment-detail {
+  display: grid;
+  gap: 5px;
+  padding: 10px 0;
+  border-top: 1px solid var(--color-border, #e8e8e8);
+}
 .candidate-evidence ul {
   margin: 5px 0 0;
   padding-left: 18px;

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import {
   Alert,
   Button,
+  Descriptions,
   Empty,
   Input,
   InputNumber,
@@ -92,7 +93,15 @@ export default function CandidateResults({
   const rankedResumes = resumes
     .filter((resume) => resume.evaluation?.status === 'completed')
     .sort((a, b) => (b.evaluation?.score ?? -1) - (a.evaluation?.score ?? -1));
-  const ranks = new Map(rankedResumes.map((resume, index) => [resume.key, index + 1]));
+  const ranks = new Map<string, number>();
+  let previousScore: number | null = null;
+  let currentRank = 0;
+  rankedResumes.forEach((resume, index) => {
+    const score = resume.evaluation?.score ?? -1;
+    if (score !== previousScore) currentRank = index + 1;
+    ranks.set(resume.key, currentRank);
+    previousScore = score;
+  });
   const rows = filteredResumes
     .map((resume) => ({
       ...resume,
@@ -200,99 +209,123 @@ export default function CandidateResults({
             </Text>
           );
         }
-        const assessments = evaluation.assessments || [];
-        const jobEvidence = evaluation.job_evidence || [];
+        const requiredAssessments = (evaluation.assessments || []).filter(
+          (assessment) => assessment.required,
+        );
+        const matchingDetails = evaluation.matching_details;
+        const scoreLabel = (value: number | null | undefined, suffix = '/100') =>
+          value === null || value === undefined ? 'Not available' : `${value}${suffix}`;
         return (
           <div className="candidate-score">
             <Text strong>{evaluation.score ?? 0}/100</Text>
-            <Text type="secondary">
-              Must-have fit {evaluation.job_match_score ?? '—'}/100
-              {evaluation.preferred_score !== null
-                ? ` · Preferences ${evaluation.preferred_score}/100 · Bonus +${evaluation.bonus_points ?? 0}`
-                : ''}
-            </Text>
-            {evaluation.preferred_score !== null && (
-              <Text type={evaluation.required_checks_passed ? 'success' : 'secondary'}>
-                {evaluation.required_checks_passed
-                  ? 'All required job checks passed; preference bonus applied.'
-                  : 'Required job checks were not all verified; no preference bonus.'}
-              </Text>
-            )}
-            <Text type="secondary">{evaluation.explanation}</Text>
             <Popover
-              title="Match evidence"
+              title="Detailed match score"
               trigger="click"
               content={
-                <div className="candidate-evidence">
-                  <div>
-                    <Text strong>
-                      Job description match · {evaluation.job_match_score ?? '—'}/100
-                    </Text>
-                    {jobEvidence.length ? (
-                      <ul>
-                        {jobEvidence.map((quote) => (
-                          <li key={quote}>“{quote}”</li>
-                        ))}
-                      </ul>
-                    ) : (
-                      <Text type="secondary">No verified excerpts for the overall job match.</Text>
-                    )}
-                  </div>
-                  {(evaluation.required_checks || []).map((check) => (
-                    <div key={check.name}>
-                      <Text strong>
-                        {check.met ? 'Passed' : 'Not verified'}: {check.name}
+                <div className="candidate-evidence candidate-score-details">
+                  <Text>Final score: {evaluation.score ?? '—'}/100</Text>
+                  <Text type="secondary">
+                    Model score: {evaluation.model_score ?? evaluation.score ?? '—'}/100
+                  </Text>
+                  <Descriptions size="small" column={1} bordered>
+                    <Descriptions.Item label="Job match">
+                      {scoreLabel(evaluation.job_match_score)}
+                    </Descriptions.Item>
+                    <Descriptions.Item label="Must-have average">
+                      {scoreLabel(matchingDetails?.must_have_score)}
+                    </Descriptions.Item>
+                    <Descriptions.Item label="Nice-to-have average">
+                      {scoreLabel(matchingDetails?.nice_to_have_score)}
+                    </Descriptions.Item>
+                    <Descriptions.Item label="Preferred score / bonus">
+                      {scoreLabel(evaluation.preferred_score)} · {evaluation.bonus_points ?? 0} points
+                    </Descriptions.Item>
+                    <Descriptions.Item label="Keyword match">
+                      {scoreLabel(matchingDetails?.keyword_score)}
+                    </Descriptions.Item>
+                    <Descriptions.Item label="Semantic match">
+                      {scoreLabel(matchingDetails?.semantic_score)}
+                    </Descriptions.Item>
+                    <Descriptions.Item label="Mean cosine similarity">
+                      {scoreLabel(matchingDetails?.mean_cosine_similarity, '')}
+                    </Descriptions.Item>
+                    <Descriptions.Item label="Skill score">
+                      {scoreLabel(matchingDetails?.skill_score)}
+                    </Descriptions.Item>
+                    <Descriptions.Item label="Experience score">
+                      {scoreLabel(matchingDetails?.experience_score)}
+                    </Descriptions.Item>
+                    <Descriptions.Item label="Qualification score">
+                      {scoreLabel(matchingDetails?.qualification_score)}
+                    </Descriptions.Item>
+                    <Descriptions.Item label="Matching method">
+                      {matchingDetails?.matching_method || 'Not available'}
+                    </Descriptions.Item>
+                  </Descriptions>
+                  {evaluation.reviewer_override_score !== null &&
+                    evaluation.reviewer_override_score !== undefined && (
+                      <Text>
+                        Recruiter review score: {evaluation.reviewer_override_score}/100
                       </Text>
-                      {check.evidence.length ? (
-                        <ul>
-                          {check.evidence.map((quote) => (
-                            <li key={quote}>“{quote}”</li>
-                          ))}
-                        </ul>
-                      ) : (
-                        <Text type="secondary">No verifiable resume quote.</Text>
-                      )}
-                    </div>
+                    )}
+                  {evaluation.reviewer_override_note && (
+                    <Text type="secondary">Review note: {evaluation.reviewer_override_note}</Text>
+                  )}
+                  <Text type="secondary">{evaluation.explanation}</Text>
+                  {(evaluation.required_checks || []).map((check) => (
+                    <Text key={check.name}>
+                      {check.met ? 'Passed' : 'Not verified'}: {check.name}
+                    </Text>
                   ))}
-                  {assessments.map((assessment) => (
-                    <div key={assessment.criterion_id}>
+                  {requiredAssessments.map((assessment) => (
+                    <Text key={assessment.criterion_id}>
+                      Required metric: {assessment.name} · {assessment.status || 'scored'} ·{' '}
+                      {assessment.score}/100
+                    </Text>
+                  ))}
+                  <Text strong>All requirement details</Text>
+                  {(evaluation.assessments || []).map((assessment) => (
+                    <div className="candidate-assessment-detail" key={assessment.criterion_id}>
                       <Text strong>
-                        {assessment.required ? 'Must-have' : 'Nice-to-have'} Â·{' '}
-                        {assessment.status || 'scored'} · {assessment.name} Â· {assessment.score}
-                        /100
+                        {assessment.name} · {assessment.required ? 'Must-have' : 'Nice-to-have'}
+                      </Text>
+                      <Text>
+                        {assessment.status || 'Scored'} · Requirement score {assessment.score}/100
                       </Text>
                       <Text type="secondary">
-                        Exact: {assessment.exact_match ? 'yes' : 'no'} Â· Semantic:{' '}
-                        {assessment.semantic_score === null ||
-                        assessment.semantic_score === undefined
-                          ? 'unavailable'
-                          : `${assessment.semantic_score}/100`}
-                        Â· Reranker:{' '}
-                        {assessment.reranker_score === null ||
-                        assessment.reranker_score === undefined
-                          ? 'unavailable'
-                          : `${assessment.reranker_score}/100`}
-                        {assessment.experience_match === null ||
-                        assessment.experience_match === undefined
-                          ? ''
-                          : ` Â· Experience: ${assessment.experience_match ? 'met' : 'not met'}`}
+                        Exact:{' '}
+                        {assessment.exact_match === undefined
+                          ? 'Not available'
+                          : assessment.exact_match
+                            ? 'Yes'
+                            : 'No'}
+                        {' · '}Keyword: {scoreLabel(assessment.keyword_score)}
+                        {' · '}Semantic: {scoreLabel(assessment.semantic_score)}
                       </Text>
-                      {assessment.evidence.length ? (
-                        <ul>
-                          {assessment.evidence.map((quote) => (
-                            <li key={quote}>“{quote}”</li>
-                          ))}
-                        </ul>
-                      ) : (
-                        <Text type="secondary">No clear excerpt found in the resume.</Text>
-                      )}
+                      <Text type="secondary">
+                        Cosine: {scoreLabel(assessment.cosine_similarity, '')}
+                        {' · '}Reranker: {scoreLabel(assessment.reranker_score)}
+                        {' · '}Experience: {assessment.experience_match === null || assessment.experience_match === undefined ? 'Not available' : assessment.experience_match ? 'Met' : 'Not met'}
+                        {assessment.experience_score !== null && assessment.experience_score !== undefined
+                          ? ` (${assessment.experience_score}/100)`
+                          : ''}
+                      </Text>
+                      <Text type="secondary">
+                        Qualification: {scoreLabel(assessment.qualification_score)}
+                        {' · '}Evidence strength: {assessment.evidence_strength ?? 'Not available'}
+                      </Text>
+                      {(assessment.evidence || []).map((quote, quoteIndex) => (
+                        <Text key={`${assessment.criterion_id}-evidence-${quoteIndex}`}>
+                          Evidence: “{quote}”
+                        </Text>
+                      ))}
                     </div>
                   ))}
                 </div>
               }
             >
               <Button type="link" size="small">
-                Evidence
+                Details
               </Button>
             </Popover>
           </div>
@@ -375,7 +408,7 @@ export default function CandidateResults({
           <Title level={3}>{isSaved ? 'Candidate rankings' : 'Resume files'}</Title>
           <Text type="secondary">
             {isSaved
-              ? 'Completed candidates are ordered by final score. Pending candidates receive a rank as local evaluation finishes.'
+              ? 'Completed candidates are ordered by final score. Candidates with the same score share a rank; pending candidates are not ranked.'
               : 'Candidates will be ranked against the job description. Optional preferred criteria add a smaller secondary score.'}
           </Text>
         </div>

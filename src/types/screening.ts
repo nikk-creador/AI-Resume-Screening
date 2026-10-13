@@ -26,9 +26,13 @@ export interface CriterionAssessment {
   requirement_type?: 'skill' | 'experience' | 'education' | 'responsibility' | 'certification' | 'other';
   priority?: number;
   exact_match?: boolean;
+  keyword_score?: number;
   semantic_score?: number | null;
+  cosine_similarity?: number | null;
   reranker_score?: number | null;
   experience_match?: boolean | null;
+  experience_score?: number | null;
+  qualification_score?: number | null;
   evidence_strength?: number;
   status?: 'matched' | 'partially_matched' | 'missing' | 'insufficient_evidence';
 }
@@ -68,6 +72,14 @@ export interface ResumeEvaluation {
     weights: Record<string, number>;
     must_have_score: number | null;
     nice_to_have_score: number | null;
+    keyword_score?: number | null;
+    semantic_score?: number | null;
+    mean_cosine_similarity?: number | null;
+    skill_score?: number | null;
+    experience_score?: number | null;
+    qualification_score?: number | null;
+    hybrid_score?: number | null;
+    component_weights?: Record<string, number>;
   } | null;
 }
 

@@ -36,19 +36,25 @@ npm run backend
 
 To start only PostgreSQL, use `npm run db:start`. Set `POSTGRES_SERVICE_NAME` in `.env` if your Windows service uses a different name; set `START_POSTGRES_SERVICE=false` if another tool manages PostgreSQL. SQLite needs no separate database service.
 
-The API docs are at `http://127.0.0.1:8000/docs`. Configure `DATABASE_URL` in the root `.env` file. The default database is local SQLite; PostgreSQL uses a `postgresql+psycopg2://...` URL.
+The API docs are at `http://127.0.0.1:8000/docs`. Configure `DATABASE_URL` in the root `.env` file. The default database is local SQLite; PostgreSQL uses a `postgresql+psycopg2://...` URL. The backend reads the root `.env`, not `.env.example`; restart it after changing configuration.
 
-## Local evaluation model
+## Evaluation model and matching
 
-Install [Ollama](https://ollama.com/download). The application runs inference locally through Ollama; it does not send resume text to a hosted model API. It defaults to the local `qwen2.5:1.5b` model — a 1.5 B parameter variant that runs roughly 4–5× faster on CPU than the 7 B model while remaining capable for structured JSON extraction; switch to `qwen2.5:3b` for higher quality or `qwen2.5:7b` for maximum quality if you have a GPU with sufficient VRAM. No fine-tuned weights or recruiter-reviewed training data are bundled with this project. After training and registering the adapter, set `OLLAMA_MODEL=recruitai-screening` in `.env` to use it.
+Resume and job-description extraction default to deterministic local rules and local embeddings; the core screening workflow requires no API key or hosted AI request. To use structured local Qwen extraction, install [Ollama](https://ollama.com/download), pull the configured model, and set `AI_EXTRACTION_ENABLED=true` with `AI_PROVIDER=ollama` in the private `.env`. Model output is schema-checked and resume evidence quotes are verified against the source text; failed extraction falls back to the deterministic rules. Resume extraction is restricted to loopback Ollama and is never sent to a hosted provider. Ollama is also used for the AI service probe and optional criteria suggestions. An OpenAI-compatible provider is an opt-in integration for those generation features only; set `AI_PROVIDER=openai_compatible` and `AI_BASE_URL` to use it. For Groq, set `RM_AI_KEY` in the root `.env`; it takes precedence over `AI_API_KEY`.
 
-Download the default local model:
+The local semantic encoder defaults to `sentence-transformers/all-MiniLM-L6-v2` through FastEmbed. It runs on CPU and uses a compatible GPU automatically when FastEmbed/ONNX Runtime detects one. Set `MATCH_EMBEDDING_MODEL=BAAI/bge-small-en-v1.5` to compare the supported alternative. The MiniLM model card declares Apache-2.0; BGE-small declares MIT. Model files are downloaded on first use and reused from the local model cache; set `HF_HUB_OFFLINE=1` after downloading to prevent model-hub requests. Embedding vectors are cached in process memory. Missing or failed semantic inference is shown as unavailable instead of being reported as a semantic score. The model identifier and CPU thread count are configurable with `MATCH_EMBEDDING_MODEL` and `MATCH_CPU_THREADS`. MiniLM and BGE-small are English-focused; validate other languages before research use.
+
+Each candidate shows a lexical-overlap baseline, mean raw cosine similarity (not a suitability probability), and a provisional hybrid score. The hybrid starts with experimental weights of 40% explicit skill match, 35% normalized semantic similarity `(cosine + 1) / 2`, 15% determinable experience, and 10% determinable qualification match; unavailable experience/qualification components are omitted and the remaining weights are renormalized. Set `MATCH_SKILL_WEIGHT`, `MATCH_SEMANTIC_WEIGHT`, `MATCH_EXPERIENCE_WEIGHT`, and `MATCH_QUALIFICATION_WEIGHT` for controlled changes. These starting weights are not validated or optimal. Required checks remain a separate evidence gate and are displayed as “Not verified” when the resume does not substantiate them. Scores support recruiter review and never automatically reject a candidate.
+
+For a reproducible comparison, prepare a permissioned UTF-8 JSONL dataset with one record per candidate/job pair, `candidate_id`, a `group_id` that joins related candidates/documents, `job_id`, explicit `train`/`dev`/`test` split, the same `job_text` for candidates in a job, `resume_text`, and graded `relevance` (0–3). Candidate and group IDs may not cross splits; duplicate candidate/job pairs are rejected. The tool compares BM25, embedding cosine similarity, and the **production requirement-level matcher** on the identical held-out test pairs. Optional `requirement_labels` maps extracted requirement IDs to independently reviewed booleans for requirement precision/recall/F1; optional `job_family` enables family breakdowns. For a fairness audit, include a pseudonymous `audit_group` only when the research protocol permits it. Groups with fewer than five candidates are suppressed; fairness metrics are descriptive and do not establish fairness or legal compliance. The runner reports NDCG@10, Precision@5, Recall@10, MRR, Spearman and Kendall rank correlation, requirement metrics where labels are supplied, family breakdowns, and elapsed time per resume:
 
 ```powershell
-ollama pull qwen2.5:1.5b
+backend\.venv\Scripts\python.exe -m backend.app.research --dataset data\reviewed-pairs.jsonl --dataset-version v1
 ```
 
-Set `OLLAMA_BASE_URL`, `OLLAMA_MODEL`, `OLLAMA_KEEP_ALIVE`, and `OLLAMA_TIMEOUT_SECONDS` in the root `.env` if needed. The API starts one persistent evaluation worker automatically, so starting the backend is enough to process queued candidates. To run only the API and manage the worker separately, set `RUN_EVALUATION_WORKER=false`; then start the worker with:
+The runner validates train/dev/test membership and evaluates only the held-out test split; it does not tune automatically. Keep test labels untouched during any development-data tuning. Use recruiter-reviewed labels and a documented, immutable dataset version. Metrics with insufficient labels are returned as unavailable. The explanation check measures quote grounding; recruiter explanation usability still requires a separate task-based study. No research outcomes or improvements are bundled or claimed.
+
+The API starts one persistent evaluation worker automatically. To run only the API and manage the worker separately, set `RUN_EVALUATION_WORKER=false`; then start the worker with:
 
 ```powershell
 npm run backend:worker
@@ -56,9 +62,9 @@ npm run backend:worker
 
 Do not start the separate worker while automatic worker startup is enabled.
 
-The worker sends resume text only to the local Ollama endpoint and stores criterion scores and evidence excerpts, not extracted full-text resumes. It processes one candidate at a time, retries temporary model failures up to three times, and resumes interrupted work after restart. Keep one worker running for the local SQLite queue. The selected model and 200+ resume throughput must be benchmarked on the target workstation before production use.
+The worker stores criterion scores and verified evidence excerpts, not extracted full-text resumes. It processes one candidate at a time, retries temporary failures up to three times, and resumes interrupted work after restart. Keep one worker for the local SQLite queue. No fine-tuned weights or recruiter-reviewed training data are bundled. The training script requires permissioned, recruiter-reviewed examples and creates an Ollama adapter; fine-tuning quality and ranking thresholds must be validated against held-out reviewed data before use.
 
-Use **AI service** in the signed-in workspace to send a small test prompt to the configured local model and inspect the latest evaluation statuses and errors for your own screenings. The activity view does not expose resume text or prompts.
+Use **AI service** in the signed-in workspace to send a small test prompt to the configured model and inspect the latest evaluation statuses and errors for your own screenings. The activity view does not expose resume text or prompts.
 
 Copy `.env.example` to `.env` before starting the backend. On first startup, a local demo user is created unless `SEED_DEMO_USER=false`:
 
@@ -81,4 +87,4 @@ The API uses REST endpoints for authentication, screening records, resume manage
 - Resume rows support search, pagination, individual removal, and multi-select removal.
 - Original files are stored under `backend/storage/`; database tables store their metadata and screening details.
 
-The job description alone drives candidate evaluation by default; recruiters do not need to add evaluation criteria. Optional preferred qualifications can be suggested by the local model or added manually. They add up to 20 points only when every explicit must-have extracted from the job description has verifiable resume evidence; otherwise the bonus is zero. Completed candidates show the job-fit score, any preference bonus, the required-check gate, and exact evidence. Results support recruiter review and do not make hiring decisions.
+The job description alone drives candidate evaluation by default; recruiters do not need to add evaluation criteria. Optional preferred qualifications can be suggested by the configured model or added manually. They add up to 20 points only when every explicit must-have extracted from the job description has verifiable resume evidence; otherwise the bonus is zero. Completed candidates show the job-fit score, any preference bonus, the required-check gate, and exact evidence. Results support recruiter review and do not make hiring decisions.

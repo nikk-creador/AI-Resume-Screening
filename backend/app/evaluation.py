@@ -16,7 +16,16 @@ from uuid import uuid4
 from docx import Document
 from langdetect import DetectorFactory, LangDetectException, detect_langs
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-from .matching import JobDescriptionProfile, JobRequirement, MatchingWeights, StructuredResume, score_requirements
+
+from .matching import (
+    JobDescriptionProfile,
+    JobRequirement,
+    MatchingWeights,
+    ResumeEvidence,
+    StructuredResume,
+    normalize_concept,
+    score_requirements,
+)
 
 ModelT = TypeVar("ModelT", bound=BaseModel)
 
@@ -25,7 +34,29 @@ MAX_RESUME_TEXT_CHARS = 40_000
 logger = logging.getLogger(__name__)
 LANGUAGE_DETECTION_CONFIDENCE = 0.7
 DEFAULT_MODEL = "qwen2.5:1.5b"
+DEFAULT_HOSTED_MODEL = "openai/gpt-oss-20b"
 NO_REQUIRED_CHECKS_NAME = "No explicit mandatory job checks"
+LOCAL_SKILL_TERMS = (
+    "machine learning", "deep learning", "natural language processing", "data analysis",
+    "data science", "computer vision", "rest api", "rest apis", "version control",
+    "project management", "quality assurance", "problem solving", "communication",
+    "microsoft excel", "power bi", "scikit-learn", "pytorch", "tensorflow",
+    "javascript", "typescript", "react native", "react.js", "reactjs", "react",
+    "node.js", "nodejs", "node", "fastapi", "django", "flask", "python",
+    "postgresql", "postgres", "mysql", "mongodb", "redis", "sqlite", "sql",
+    "amazon web services", "aws", "microsoft azure", "azure", "google cloud",
+    "gcp", "docker", "kubernetes", "terraform", "linux", "git", "github",
+    "java", "kotlin", "swift", "golang", "go", "rust", "c++", "c#", ".net",
+    "html", "css", "angular", "vue", "next.js", "express", "graphql",
+    "pandas", "numpy", "spark", "hadoop", "tableau", "salesforce", "jira",
+    "agile", "scrum", "communication skills", "leadership",
+)
+LOCAL_QUALIFICATION_TERMS = (
+    "bachelor's degree", "bachelor degree", "master's degree", "master degree",
+    "associate degree", "phd", "doctorate", "high school diploma",
+    "pmp", "cissp", "comptia security+", "aws certified",
+)
+_REQUIREMENT_SENTENCE_SPLIT = re.compile(r"(?<=[.!?;])\s+|\n+")
 DetectorFactory.seed = 0
 PROTECTED_CRITERION_TERMS = {
     "age",
@@ -275,57 +306,108 @@ def _request_model(
     response_model: type[ModelT],
     system_prompt: str,
 ) -> ModelT:
-    keep_alive = os.getenv("OLLAMA_KEEP_ALIVE", "-1").strip()
-    if keep_alive == "-1":
-        keep_alive_value: str | int = -1
-    else:
-        keep_alive_value = keep_alive
-    payload = {
-        "model": os.getenv("OLLAMA_MODEL", DEFAULT_MODEL),
-        "stream": False,
-        # Keep the fine-tuned model resident between candidate jobs so Ollama does
-        # not need to reload weights after its normal idle timeout.
-        "keep_alive": keep_alive_value,
-        "options": {
+    provider = os.getenv("AI_PROVIDER", "ollama").strip().casefold()
+    model_name = os.getenv("AI_MODEL", "").strip()
+    if provider == "openai_compatible":
+        base_url = os.getenv("AI_BASE_URL", "https://api.groq.com/openai/v1").rstrip("/")
+        model_name = model_name or DEFAULT_HOSTED_MODEL
+        api_key = os.getenv("RM_AI_KEY", "").strip() or os.getenv("AI_API_KEY", "").strip()
+        if not api_key:
+            raise RuntimeError(
+                "AI_API_KEY or RM_AI_KEY is required when AI_PROVIDER=openai_compatible."
+            )
+        payload = {
+            "model": model_name,
             "temperature": 0,
-            "top_p": 0.2,
-            "num_predict": int(os.getenv("OLLAMA_NUM_PREDICT", "512")),
-        },
-        "format": response_model.model_json_schema(),
-        "messages": [
-            {
-                "role": "system",
-                "content": system_prompt,
-        },
-            {"role": "user", "content": prompt},
-        ],
-    }
-    request = Request(
-        _local_model_url(),
-        data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
-    timeout = float(os.getenv("OLLAMA_TIMEOUT_SECONDS", "120"))
-    try:
-        with urlopen(request, timeout=timeout) as response:
-            body = json.loads(response.read())
-    except HTTPError as error:
-        response_detail = error.read().decode("utf-8", errors="replace").strip()
-        if len(response_detail) > 400:
-            response_detail = response_detail[:400] + "…"
-        model_name = os.getenv("OLLAMA_MODEL", DEFAULT_MODEL)
-        message = f"Ollama returned HTTP {error.code} for model '{model_name}'."
-        if response_detail:
-            message = f"{message} {response_detail}"
-        raise RuntimeError(message) from error
-    except (URLError, TimeoutError, OSError) as error:
-        raise RuntimeError("Local Ollama is unavailable. Start Ollama and pull the configured model.") from error
-    try:
+            "max_tokens": int(os.getenv("AI_MAX_TOKENS", "1200")),
+            "response_format": {"type": "json_object"},
+            "messages": [
+                {
+                    "role": "system",
+                    "content": (
+                        f"{system_prompt}\nReturn one JSON object matching this schema: "
+                        f"{json.dumps(response_model.model_json_schema())}"
+                    ),
+                },
+                {"role": "user", "content": prompt},
+            ],
+        }
+        endpoint = f"{base_url}/chat/completions"
+        headers = {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"}
+        timeout = float(os.getenv("AI_TIMEOUT_SECONDS", "45"))
+    elif provider == "ollama":
+        keep_alive = os.getenv("OLLAMA_KEEP_ALIVE", "-1").strip()
+        keep_alive_value: str | int = -1 if keep_alive == "-1" else keep_alive
+        model_name = model_name or os.getenv("OLLAMA_MODEL", DEFAULT_MODEL)
+        payload = {
+            "model": model_name,
+            "stream": False,
+            "keep_alive": keep_alive_value,
+            "options": {
+                "temperature": 0,
+                "top_p": 0.2,
+                "num_predict": int(os.getenv("OLLAMA_NUM_PREDICT", "512")),
+            },
+            "format": response_model.model_json_schema(),
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": prompt},
+            ],
+        }
+        endpoint = _local_model_url()
+        headers = {"Content-Type": "application/json"}
+        timeout = float(os.getenv("OLLAMA_TIMEOUT_SECONDS", "120"))
+    else:
+        raise RuntimeError("AI_PROVIDER must be 'ollama' or 'openai_compatible'.")
+    if provider == "openai_compatible":
+        request = Request(
+            endpoint,
+            data=json.dumps(payload).encode("utf-8"),
+            headers=headers,
+            method="POST",
+        )
+        try:
+            with urlopen(request, timeout=timeout) as response:
+                body = json.loads(response.read())
+            content = body["choices"][0]["message"]["content"]
+        except HTTPError as error:
+            response_detail = error.read().decode("utf-8", errors="replace").strip()
+            if len(response_detail) > 400:
+                response_detail = response_detail[:400] + "…"
+            message = f"AI provider returned HTTP {error.code} for model '{model_name}'."
+            if response_detail:
+                message = f"{message} {response_detail}"
+            raise RuntimeError(message) from error
+        except (URLError, TimeoutError, OSError) as error:
+            raise RuntimeError("The configured AI provider is unavailable or timed out.") from error
+    else:
+        request = Request(
+            endpoint,
+            data=json.dumps(payload).encode("utf-8"),
+            headers=headers,
+            method="POST",
+        )
+        try:
+            with urlopen(request, timeout=timeout) as response:
+                body = json.loads(response.read())
+        except HTTPError as error:
+            response_detail = error.read().decode("utf-8", errors="replace").strip()
+            if len(response_detail) > 400:
+                response_detail = response_detail[:400] + "…"
+            message = f"AI provider returned HTTP {error.code} for model '{model_name}'."
+            if response_detail:
+                message = f"{message} {response_detail}"
+            raise RuntimeError(message) from error
+        except (URLError, TimeoutError, OSError) as error:
+            raise RuntimeError("The configured AI provider is unavailable or timed out.") from error
         content = body["message"]["content"]
+
+    try:
+        if content is None:
+            raise ValueError("The AI model returned an empty response.")
         return response_model.model_validate_json(content)
     except (KeyError, TypeError, ValueError) as error:
-        raise RuntimeError("The local model returned an invalid evaluation.") from error
+        raise RuntimeError("The AI model returned an invalid evaluation.") from error
 
 
 def test_ai_service() -> tuple[str, int]:
@@ -336,34 +418,162 @@ def test_ai_service() -> tuple[str, int]:
         AIProbeResult,
         "You are a service diagnostic. Return the requested JSON only.",
     )
-    return os.getenv("OLLAMA_MODEL", DEFAULT_MODEL), round((perf_counter() - started) * 1000)
+    provider = os.getenv("AI_PROVIDER", "ollama").strip().casefold()
+    model = os.getenv("AI_MODEL") or (
+        os.getenv("OLLAMA_MODEL", DEFAULT_MODEL)
+        if provider == "ollama"
+        else DEFAULT_HOSTED_MODEL
+    )
+    return model, round((perf_counter() - started) * 1000)
 
 
 def extract_job_requirements(job_description: str) -> JobDescriptionProfile:
-    prompt = json.dumps(
-        {
-            "job_description": job_description,
-            "instructions": "Return every explicit must-have and nice-to-have as a separate requirement. Extract minimum years only when stated explicitly.",
-        },
-        ensure_ascii=False,
-    )
-    return _request_model(prompt, JobDescriptionProfile, JOB_REQUIREMENTS_SYSTEM_PROMPT)
+    if os.getenv("AI_EXTRACTION_ENABLED", "false").casefold() == "true":
+        # Resume and JD content can contain sensitive data. Structured extraction
+        # is intentionally restricted to loopback Ollama, never a hosted provider.
+        if os.getenv("AI_PROVIDER", "ollama").strip().casefold() == "ollama":
+            try:
+                result = _request_model(
+                    json.dumps({"job_description": job_description[:MAX_RESUME_TEXT_CHARS]}, ensure_ascii=False),
+                    JobDescriptionProfile,
+                    JOB_REQUIREMENTS_SYSTEM_PROMPT,
+                )
+                if result.requirements:
+                    return result
+            except (RuntimeError, ValueError):
+                logger.exception("Local model JD extraction failed; using deterministic rules.")
+        else:
+            logger.warning("AI_EXTRACTION_ENABLED requires local Ollama; using deterministic rules.")
+    requirements: dict[str, JobRequirement] = {}
+    sentences = _REQUIREMENT_SENTENCE_SPLIT.split(job_description[:MAX_RESUME_TEXT_CHARS])
+    for sentence_index, sentence in enumerate(sentences):
+        if not sentence.strip():
+            continue
+        required = bool(
+            re.search(r"\b(required|must(?:\s+have)?|minimum|need(?:ed)?\s+to|mandatory)\b", sentence, re.I)
+        )
+        requirement_class = "must_have" if required else "nice_to_have"
+        years_match = re.search(r"\b(\d+(?:\.\d+)?)\s*\+?\s*years?\b", sentence, re.I)
+        for term in LOCAL_SKILL_TERMS:
+            if not re.search(rf"(?<![\w+#]){re.escape(term)}(?![\w+#])", sentence, re.I):
+                continue
+            concept = normalize_concept(term)
+            if concept in requirements:
+                continue
+            identifier = re.sub(r"[^a-z0-9]+", "-", concept.casefold()).strip("-")[:80]
+            requirements[concept] = JobRequirement(
+                id=identifier or f"requirement-{sentence_index}",
+                text=sentence.strip()[:500],
+                normalized_concept=concept,
+                requirement_type="skill",
+                requirement_class=requirement_class,
+                priority=5 if required else 3,
+                evidence_needed=f"Resume evidence for {concept}",
+                minimum_years=float(years_match.group(1)) if years_match else None,
+            )
+        for term in LOCAL_QUALIFICATION_TERMS:
+            if not re.search(rf"(?<![\w+#]){re.escape(term)}(?![\w+#])", sentence, re.I):
+                continue
+            concept = term.casefold()
+            if concept in requirements:
+                continue
+            identifier = re.sub(r"[^a-z0-9]+", "-", concept).strip("-")[:80]
+            requirements[concept] = JobRequirement(
+                id=identifier or f"qualification-{sentence_index}",
+                text=sentence.strip()[:500],
+                normalized_concept=concept,
+                requirement_type="certification" if concept in {"pmp", "cissp", "comptia security+", "aws certified"} else "education",
+                requirement_class=requirement_class,
+                priority=5 if required else 3,
+                evidence_needed=f"Resume evidence for {concept}",
+            )
+
+    if not requirements:
+        fallback = next(
+            (sentence.strip() for sentence in sentences if len(sentence.split()) >= 3),
+            "",
+        )
+        if fallback:
+            requirements["job-relevance"] = JobRequirement(
+                id="job-relevance",
+                text=fallback[:500],
+                normalized_concept="job relevance",
+                requirement_type="other",
+                requirement_class="nice_to_have",
+                priority=3,
+                evidence_needed="Direct resume evidence",
+            )
+    return JobDescriptionProfile(requirements=list(requirements.values())[:40])
 
 
 def extract_resume_profile(resume_text: str) -> StructuredResume:
-    profile = _request_model(
-        json.dumps({"resume": resume_text[:MAX_RESUME_TEXT_CHARS]}, ensure_ascii=False),
-        StructuredResume,
-        RESUME_EXTRACTION_SYSTEM_PROMPT,
+    if os.getenv("AI_EXTRACTION_ENABLED", "false").casefold() == "true":
+        if os.getenv("AI_PROVIDER", "ollama").strip().casefold() == "ollama":
+            try:
+                result = _request_model(
+                    json.dumps({"resume_text": resume_text[:MAX_RESUME_TEXT_CHARS]}, ensure_ascii=False),
+                    StructuredResume,
+                    RESUME_EXTRACTION_SYSTEM_PROMPT,
+                )
+                verified = [
+                    item for item in result.evidence
+                    if item.evidence.casefold() in resume_text.casefold()
+                ]
+                if verified:
+                    return StructuredResume(evidence=verified)
+            except (RuntimeError, ValueError):
+                logger.exception("Local model resume extraction failed; using deterministic rules.")
+        else:
+            logger.warning("AI_EXTRACTION_ENABLED requires local Ollama; using deterministic rules.")
+    section = "Unknown"
+    source_type: Literal[
+        "professional", "internship", "academic_project", "personal_project",
+        "certification", "course", "other",
+    ] = "other"
+    evidence: list[ResumeEvidence] = []
+    seen: set[tuple[str, str]] = set()
+    headings: tuple[tuple[str, str, Literal[
+        "professional", "internship", "academic_project", "personal_project",
+        "certification", "course", "other",
+    ]], ...] = (
+        (r"\b(experience|employment|work history|professional history)\b", "Experience", "professional"),
+        (r"\b(projects?|portfolio)\b", "Projects", "personal_project"),
+        (r"\b(education|academic)\b", "Education", "academic_project"),
+        (r"\b(certifications?|licenses?)\b", "Certifications", "certification"),
+        (r"\b(courses?|training)\b", "Courses", "course"),
     )
-    verified = [
-        item
-        for item in profile.evidence
-        if item.evidence.strip() and item.evidence.strip().casefold() in resume_text.casefold()
-    ]
-    if not verified:
-        raise ValueError("The resume extraction returned no verifiable evidence quotes.")
-    return StructuredResume(evidence=verified)
+    for line in resume_text[:MAX_RESUME_TEXT_CHARS].splitlines():
+        cleaned = line.strip()
+        if not cleaned:
+            continue
+        for pattern, heading, kind in headings:
+            if re.search(pattern, cleaned, re.I):
+                section, source_type = heading, kind
+                break
+        if len(cleaned) < 8:
+            continue
+        for term in (*LOCAL_SKILL_TERMS, *LOCAL_QUALIFICATION_TERMS):
+            if not re.search(rf"(?<![\w+#]){re.escape(term)}(?![\w+#])", cleaned, re.I):
+                continue
+            concept = normalize_concept(term)
+            key = concept, cleaned.casefold()
+            if key in seen:
+                continue
+            seen.add(key)
+            years = re.search(r"\b(19\d{2}|20\d{2})\s*[-–]\s*(19\d{2}|20\d{2})\b", cleaned)
+            evidence.append(
+                ResumeEvidence(
+                    normalized_concept=concept,
+                    evidence=cleaned[:800],
+                    section=section,
+                    source_type=source_type,
+                    start_year=int(years.group(1)) if years else None,
+                    end_year=int(years.group(2)) if years else None,
+                )
+            )
+            if len(evidence) >= 100:
+                return StructuredResume(evidence=evidence)
+    return StructuredResume(evidence=evidence)
 
 
 def evaluate_resume(

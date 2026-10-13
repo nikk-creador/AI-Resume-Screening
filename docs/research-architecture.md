@@ -2,7 +2,7 @@
 
 ## Current implementation
 
-The screening worker extracts searchable document text, asks the local Ollama model for structured JD requirements and resume evidence, and validates every returned resume quote. `backend/app/matching.py` computes scores; an LLM response never supplies the final candidate score. Profiles and JD requirements are cached as JSON on their screening/resume records so retries use the same extracted evidence. Recruiters can edit extracted requirements, inspect evidence, and record a score override with a reason. Model score, override, reviewer, and timestamp are stored separately; active ranking uses the override when present.
+The screening worker extracts searchable document text and defaults to deterministic local JD/resume rules. Optional structured extraction can be enabled with `AI_EXTRACTION_ENABLED=true`; it only uses loopback Ollama, validates the response schema and exact resume quotes, and falls back to deterministic rules on errors. `backend/app/matching.py` computes scores; an LLM response never supplies a candidate score. Profiles and JD requirements are cached as JSON on their screening/resume records so retries use the same extracted evidence. Recruiters can edit extracted requirements, inspect evidence, and record a score override with a reason. Model score, override, reviewer, and timestamp are stored separately; active ranking uses the override when present.
 
 ```text
 PDF/DOCX -> text extraction (+ optional Tesseract OCR)
@@ -61,7 +61,7 @@ Fine-tune for structured extraction (resume evidence and JD requirements), never
 
 Evidence and requirement statuses remain inspectable in the candidate UI. Recruiters can correct requirement text/class and record a separate score override with a reason. Automated feedback is not training data by default.
 
-Use identical candidate/JD splits and compare exact matching, semantic matching, hybrid matching, and hybrid plus cross-encoder. Report Precision@K, Recall@K, nDCG@K, Spearman and Kendall rank correlation, requirement-level precision/recall/F1, evidence coverage, latency per resume, and unsupported explanation rate. Do not claim superiority before the held-out evaluation. The scorer exposes component values and weights so these experiments can be reproduced.
+`backend/app/research.py` compares BM25 and embedding baselines with the production requirement-level matcher on the same held-out candidate/JD pairs. It reports NDCG@10, Precision@5, Recall@10, MRR, Spearman/Kendall rank agreement, latency, evidence coverage and quote grounding, optional family breakdowns, optional requirement precision/recall/F1 from independent labels, and top-10 selection rates for explicitly supplied pseudonymous audit groups (minimum group size five). Fairness output is descriptive and must be interpreted with the study protocol; it is not a compliance determination. Recruiter explanation usability still needs a task-based study. The runner validates split boundaries and never tunes on test data. Do not claim superiority before a held-out evaluation with a reviewed dataset. The report records production matching weights, model/dependency versions, and extraction mode for reproducibility.
 
 ## Known limits
 

@@ -1,6 +1,6 @@
 # Local Model Fine-Tuning
 
-The evaluator runs locally through Ollama; it does not send resumes to a hosted model API. Its current base default is `qwen2.5:1.5b` (a 1.5 B parameter model chosen for fast CPU inference; switch to `qwen2.5:7b` for maximum quality if you have a GPU with sufficient VRAM). Fine-tuning teaches structured resume evidence and JD requirement extraction; it does not train on hiring outcomes or predict scores. On the inspected 4 GB GTX 1650, the training default is Qwen2.5 1.5B with a 2K context. No trained weights are included: a permissioned, recruiter-reviewed extraction dataset is required. The trainer requires 100 examples by default and refuses unreviewed examples.
+Core resume extraction and matching run locally with deterministic evidence rules and the configured FastEmbed embedding model; neither needs an LLM or an API key. Ollama is optional and used only for generation features such as the service probe and preferred-criteria suggestions. Fine-tuning teaches structured resume evidence and JD requirement extraction; it does not train on hiring outcomes or predict scores. On the inspected 4 GB GTX 1650, the training default is Qwen2.5 1.5B with a 2K context. No trained weights are included: a permissioned, recruiter-reviewed extraction dataset is required. The trainer requires 100 examples by default and refuses unreviewed examples.
 
 ## Dataset
 
@@ -13,20 +13,35 @@ Create a UTF-8 JSONL file outside source control. Each line is one human-reviewe
 
 Keep the dataset local and permissioned. Resume text contains personal data; redact contact details and any information not needed for the evaluation task. Use recruiter judgments about job-related evidence, not past hiring decisions as ground truth.
 
+### Synthetic Hugging Face starter data
+
+The optional importer supports [`sukhrobnurali/resume-parsing-vision`](https://huggingface.co/datasets/sukhrobnurali/resume-parsing-vision), a CC-BY-4.0 synthetic, English-text dataset with frozen train/validation/test splits (850/75/75). Its source schema includes personal fields, so the importer retains only text and skill evidence, removes names/contact details/address/date-of-birth lines, and emits **unreviewed** drafts. It does not auto-approve labels. The source is limited to software roles and its canonical skills are not the same as this application's evidence taxonomy; review and correct every example before training. Cite and link the dataset if you use it.
+
+Install the trainer requirements, then prepare drafts:
+
+```bash
+python -m pip install -r backend/requirements-training.txt
+python -m backend.training.prepare_hf_dataset
+```
+
+Review each `*.draft.jsonl` file with a person who can verify both the target and exact evidence quotes. Correct targets, remove questionable rows, and set `reviewed` to `true` only after review; save the approved split files separately (for example `train.jsonl`, `validation.jsonl`, and `test.jsonl`). By default, the loader rejects drafts with `reviewed:false`. For a controlled synthetic-only pilot, the importer sets `synthetic:true`, every evidence quote is checked verbatim against its source, and the explicit `--allow-synthetic-data` flag permits training without claiming recruiter review. That pilot evaluates extraction on synthetic skill labels only and does not establish real-world screening accuracy.
+
 ## Training
 
-Run QLoRA in CUDA-enabled WSL2/Linux. Install a CUDA-enabled PyTorch build for the WSL environment, then install the optional trainer dependencies:
+Run QLoRA in a CUDA-enabled Windows or Linux environment. Install a CUDA-enabled PyTorch build for your platform, then install the app and optional trainer dependencies:
 
 ```bash
 python -m pip install -r backend/requirements.txt
 python -m pip install -r backend/requirements-training.txt
-python -m backend.training.finetune --dataset /path/to/reviewed-examples.jsonl --validate-only
-python -m backend.training.finetune --dataset /path/to/reviewed-examples.jsonl
+python -m backend.training.finetune --dataset /path/to/train.jsonl --validation-dataset /path/to/validation.jsonl --test-dataset /path/to/test.jsonl --validate-only
+python -m backend.training.finetune --dataset /path/to/train.jsonl --validation-dataset /path/to/validation.jsonl --test-dataset /path/to/test.jsonl
 ```
 
-Before creating the Ollama model, pull its base model once: `ollama pull qwen2.5:3b`.
+For the synthetic pilot files, add `--allow-synthetic-data` to both commands above.
 
-Training holds out 10% for validation, requires a CUDA GPU, uses 4-bit LoRA adapters, and refuses examples over 2,048 tokens rather than silently truncating evidence. Review validation loss and representative multilingual extraction quality before using an adapter. With only 4 GB VRAM, reduce batch/context settings further if CUDA memory runs out.
+When separate split files are supplied, the trainer preserves them and reports held-out test loss to `test_metrics.json` after training. The test split is never used for gradient updates or checkpoint selection. If no separate validation file is supplied, the trainer makes a seeded 10% validation split from the training file. Test loss is a language-modeling metric, not field-level extraction accuracy; manually review outputs and measure quote support and schema validity before use.
+
+Training requires a CUDA GPU, uses 4-bit LoRA adapters, and refuses examples over 2,048 tokens rather than silently truncating evidence. Review representative extraction quality before using an adapter. With only 4 GB VRAM, CUDA may run out of memory; lower the context setting only after filtering examples that exceed it. This synthetic starter has English prose, so it does not measure multilingual extraction quality.
 
 The run writes a PEFT adapter and an Ollama `Modelfile` under `backend/training/output/recruitai-screening`. Pull the matching base tag once, then from that directory create and smoke-test the local model:
 

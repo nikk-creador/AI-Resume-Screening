@@ -170,6 +170,7 @@ def process_next_evaluation(db: Session, upload_dir: Path = UPLOAD_DIR) -> bool:
                 "weights": result["weights"],
                 "must_have_score": result["must_have_score"],
                 "nice_to_have_score": result["nice_to_have_score"],
+                **result["research_scores"],
             },
             error_message=None,
             available_at=None,

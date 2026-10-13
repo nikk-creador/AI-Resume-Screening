@@ -5,6 +5,24 @@ from backend.app.matching import JobRequirement, MatchingWeights, ResumeEvidence
 
 
 class MatchingTests(unittest.TestCase):
+    def test_embedding_failure_leaves_semantic_component_unknown(self):
+        requirement = JobRequirement(
+            id="python", text="Python development", normalized_concept="python",
+            requirement_type="skill", requirement_class="must_have", priority=5,
+            evidence_needed="Work evidence", minimum_years=None,
+        )
+        profile = StructuredResume(evidence=[ResumeEvidence(
+            normalized_concept="python", evidence="Built production systems with Python.",
+            section="Experience", source_type="professional",
+        )])
+        with patch("backend.app.matching._precompute_passage_vectors", return_value=None), patch(
+            "backend.app.matching._embedding_model", side_effect=RuntimeError("model unavailable")
+        ):
+            result = score_requirements([requirement], profile, profile.evidence[0].evidence)
+
+        self.assertIsNone(result["research_scores"]["semantic_score"])
+        self.assertIsNone(result["research_scores"]["mean_cosine_similarity"])
+
     def test_aliases_normalize_without_merging_related_tools(self):
         self.assertEqual(normalize_concept("React.js"), "react")
         self.assertEqual(normalize_concept("React Native"), "react native")
@@ -21,7 +39,7 @@ class MatchingTests(unittest.TestCase):
             section="Experience", source_type="professional",
         )])
         with patch("backend.app.matching._precompute_passage_vectors", return_value=None), patch(
-            "backend.app.matching._cosine_scores", return_value=[0.9]
+            "backend.app.matching._cosine_score_matrix", return_value=[[0.9]]
         ), patch(
             "backend.app.matching._reranker_scores", return_value=[0.9]
         ):
@@ -31,6 +49,12 @@ class MatchingTests(unittest.TestCase):
         self.assertTrue(item["exact_match"])
         self.assertEqual(item["evidence"], [profile.evidence[0].evidence])
         self.assertGreaterEqual(result["score"], 90)
+        self.assertEqual(result["research_scores"]["skill_score"], item["keyword_score"])
+        self.assertEqual(result["research_scores"]["hybrid_score"], result["score"])
+        self.assertEqual(
+            result["research_scores"]["component_weights"],
+            {"skill": 0.4, "semantic": 0.35, "experience": 0.15, "qualification": 0.1},
+        )
 
     def test_course_evidence_does_not_satisfy_professional_years(self):
         requirement = JobRequirement(
