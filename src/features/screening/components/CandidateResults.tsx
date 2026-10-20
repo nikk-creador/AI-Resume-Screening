@@ -18,7 +18,7 @@ import {
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 
-import { ReloadOutlined, StopOutlined } from '@ant-design/icons';
+import { DownloadOutlined, ReloadOutlined, StopOutlined } from '@ant-design/icons';
 
 import { downloadApiFile } from '../../../services/api/client';
 import type { CandidateRow, ResumeRow, RetryMode } from '../../../types/screening';
@@ -43,6 +43,7 @@ function getKeyedEvidence(criterionId: string, evidence: string[]) {
 interface CandidateResultsProps {
   resumes: ResumeRow[];
   screeningId: string | null;
+  screeningName: string;
   canEdit: boolean;
   canDownload: boolean;
   query: string;
@@ -69,6 +70,7 @@ interface CandidateResultsProps {
 export default function CandidateResults({
   resumes,
   screeningId,
+  screeningName,
   canEdit,
   canDownload,
   query,
@@ -173,6 +175,92 @@ export default function CandidateResults({
     } catch (error: unknown) {
       messageApi.error(getErrorMessage(error, 'Could not download this resume.'));
     }
+  };
+  const exportScorecard = () => {
+    const headers = [
+      'Screening',
+      'Rank',
+      'Candidate',
+      'Resume file',
+      'Uploaded at',
+      'Evaluation status',
+      'Final score',
+      'Model score',
+      'Job match score',
+      'Preferred score',
+      'Preferred bonus points',
+      'Required checks passed',
+      'Required checks and evidence',
+      'Criterion assessments and evidence',
+      'Evaluation explanation',
+      'Reviewer override score',
+      'Reviewer note',
+      'Review updated at',
+    ];
+    const records = [...resumes]
+      .sort((first, second) => {
+        const firstRank = ranks.get(first.key) ?? null;
+        const secondRank = ranks.get(second.key) ?? null;
+        if (firstRank !== null && secondRank !== null) return firstRank - secondRank;
+        if (firstRank !== null) return -1;
+        if (secondRank !== null) return 1;
+        return displayName(first.name).localeCompare(displayName(second.name));
+      })
+      .map((resume) => {
+        const evaluation = resume.evaluation;
+        const requiredChecks = (evaluation?.required_checks ?? [])
+          .map(
+            (check) =>
+              `${check.met ? 'Passed' : 'Not verified'}: ${check.name}${check.evidence.length ? ` — evidence: ${check.evidence.map((quote) => `“${quote}”`).join('; ')}` : ''}`,
+          )
+          .join('\n');
+        const assessments = (evaluation?.assessments ?? [])
+          .map((assessment) => {
+            const category = assessment.required ? 'Must-have' : 'Nice-to-have';
+            const evidence = assessment.evidence.map((quote) => `“${quote}”`).join('; ');
+            return `${assessment.name} (${category}) — ${assessment.score}/100, ${assessment.status || 'scored'}${evidence ? `; evidence: ${evidence}` : '; no evidence recorded'}`;
+          })
+          .join('\n');
+        return [
+          screeningName,
+          ranks.get(resume.key) ?? '',
+          displayName(resume.name),
+          resume.name,
+          resume.createdAt,
+          evaluation?.status ?? (resume.id ? 'stored' : 'ready to upload'),
+          evaluation?.score ?? '',
+          evaluation?.model_score ?? '',
+          evaluation?.job_match_score ?? '',
+          evaluation?.preferred_score ?? '',
+          evaluation?.bonus_points ?? '',
+          evaluation?.required_checks_passed === null ||
+          evaluation?.required_checks_passed === undefined
+            ? ''
+            : evaluation.required_checks_passed
+              ? 'Yes'
+              : 'No',
+          requiredChecks,
+          assessments,
+          evaluation?.explanation ?? '',
+          evaluation?.reviewer_override_score ?? '',
+          evaluation?.reviewer_override_note ?? '',
+          evaluation?.reviewer_updated_at ?? '',
+        ];
+      });
+    const csv = [headers, ...records]
+      .map((record) => record.map((value) => `"${String(value).replace(/"/g, '""')}"`).join(','))
+      .join('\r\n');
+    const blob = new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    const safeName = screeningName
+      .trim()
+      .replace(/[<>:"/\\|?*\u0000-\u001f]/g, '-')
+      .replace(/\s+/g, '-');
+    link.href = url;
+    link.download = `${safeName || 'screening'}-scorecard-${new Date().toISOString().slice(0, 10)}.csv`;
+    link.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
 
   const columns: ColumnsType<CandidateRow> = [
@@ -466,6 +554,11 @@ export default function CandidateResults({
         <div className="results-actions">
           {isSaved && comparableResumes.length > 1 && (
             <Button onClick={() => setComparisonOpen(true)}>Compare candidates</Button>
+          )}
+          {isSaved && resumes.length > 0 && (
+            <Button icon={<DownloadOutlined />} onClick={exportScorecard}>
+              Export scorecard
+            </Button>
           )}
           {canEdit && isSaved && resumes.length > 0 && (
             <Button
