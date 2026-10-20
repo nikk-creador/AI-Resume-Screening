@@ -53,6 +53,9 @@ function localResume(file: File): ResumeRow {
     stored: false,
     languageCode: null,
     pipelineStage: 'new',
+    duplicateOfResumeId: null,
+    duplicateOfFilename: null,
+    duplicateReason: null,
     evaluation: null,
   };
 }
@@ -71,6 +74,9 @@ function normalizeScreening(data: ScreeningApiRecord): ScreeningState {
       stored: true,
       languageCode: resume.language_code,
       pipelineStage: resume.pipeline_stage,
+      duplicateOfResumeId: resume.duplicate_of_resume_id,
+      duplicateOfFilename: resume.duplicate_of_filename,
+      duplicateReason: resume.duplicate_reason,
       evaluation: resume.evaluation,
     })),
     jobFile: data.job_description_filename

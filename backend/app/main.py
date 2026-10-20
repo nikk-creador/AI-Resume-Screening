@@ -444,6 +444,9 @@ def screening_payload(screening: Screening) -> dict:
                 "created_at": iso_utc(resume.created_at),
                 "language_code": resume.language_code,
                 "pipeline_stage": resume.pipeline_stage,
+                "duplicate_of_resume_id": resume.duplicate_of_resume_id,
+                "duplicate_of_filename": resume.duplicate_of_filename,
+                "duplicate_reason": resume.duplicate_reason,
                 "evaluation": (
                     {
                         "status": resume.evaluation.status,
@@ -538,6 +541,7 @@ def template_payload(template: ScreeningTemplate) -> dict:
 
 
 async def store_resume_uploads(
+    db: Session,
     screening: Screening,
     resumes: list[UploadFile],
     uploaded_paths: list[Path],
@@ -547,35 +551,64 @@ async def store_resume_uploads(
             status_code=413,
             detail=f"Upload no more than {MAX_RESUMES_PER_BATCH} resumes per batch.",
         )
-    existing = {
-        (resume.filename.casefold(), resume.size_bytes)
-        for resume in screening.resumes
-    }
-    seen_in_batch: set[tuple[str, int]] = set()
+    if screening.company_id:
+        existing_resumes = list(
+            db.scalars(
+                select(Resume)
+                .join(Screening)
+                .where(Screening.company_id == screening.company_id)
+            ).all()
+        )
+    else:
+        existing_resumes = list(screening.resumes)
+
+    existing_by_name_size: dict[tuple[str, int], Resume] = {}
+    existing_by_hash: dict[str, Resume] = {}
+    for existing_resume in existing_resumes:
+        key = (existing_resume.filename.casefold(), existing_resume.size_bytes)
+        existing_by_name_size.setdefault(key, existing_resume)
+        digest = existing_resume.content_sha256
+        if not digest:
+            existing_path = UPLOAD_DIR / existing_resume.storage_name
+            if existing_path.is_file():
+                try:
+                    digest = hashlib.sha256(existing_path.read_bytes()).hexdigest()
+                    existing_resume.content_sha256 = digest
+                except OSError:
+                    digest = None
+        if digest:
+            existing_by_hash.setdefault(digest, existing_resume)
+
     for upload in resumes:
         filename, content = await read_upload(upload, RESUME_EXTENSIONS)
         duplicate_key = (filename.casefold(), len(content))
-        if duplicate_key in seen_in_batch:
-            raise HTTPException(status_code=422, detail=f"{filename} was included more than once.")
-        seen_in_batch.add(duplicate_key)
-        if duplicate_key in existing:
-            continue
+        content_hash = hashlib.sha256(content).hexdigest()
+        duplicate_source = existing_by_hash.get(content_hash)
+        duplicate_reason = "Matching file content" if duplicate_source else None
+        if duplicate_source is None:
+            duplicate_source = existing_by_name_size.get(duplicate_key)
+            if duplicate_source is not None:
+                duplicate_reason = "Matching filename and file size"
 
         storage_name = f"{uuid4().hex}{Path(filename).suffix.lower()}"
         file_path = UPLOAD_DIR / storage_name
         file_path.write_bytes(content)
         uploaded_paths.append(file_path)
-        screening.resumes.append(
-            Resume(
-                id=str(uuid4()),
-                filename=filename,
-                content_type=upload.content_type,
-                size_bytes=len(content),
-                storage_name=storage_name,
-                evaluation=ResumeEvaluation(status="queued"),
-            )
+        resume = Resume(
+            id=str(uuid4()),
+            filename=filename,
+            content_type=upload.content_type,
+            size_bytes=len(content),
+            storage_name=storage_name,
+            content_sha256=content_hash,
+            duplicate_of_resume_id=duplicate_source.id if duplicate_source else None,
+            duplicate_of_filename=duplicate_source.filename if duplicate_source else None,
+            duplicate_reason=duplicate_reason,
+            evaluation=ResumeEvaluation(status="queued"),
         )
-        existing.add(duplicate_key)
+        screening.resumes.append(resume)
+        existing_by_hash.setdefault(content_hash, resume)
+        existing_by_name_size.setdefault(duplicate_key, resume)
 
 
 @app.get("/health", tags=["system"])
@@ -1558,7 +1591,7 @@ async def create_screening(
             screening.job_description_content_type = job_description_file.content_type
             screening.job_description_storage_name = storage_name
 
-        await store_resume_uploads(screening, resumes, uploaded_paths)
+        await store_resume_uploads(db, screening, resumes, uploaded_paths)
         db.add(screening)
         company = db.get(Company, screening.company_id) if screening.company_id else None
         if company is not None:
@@ -1854,7 +1887,7 @@ async def upload_screening_resumes(
         raise HTTPException(status_code=404, detail="Screening not found.")
     uploaded_paths: list[Path] = []
     try:
-        await store_resume_uploads(screening, resumes, uploaded_paths)
+        await store_resume_uploads(db, screening, resumes, uploaded_paths)
         db.commit()
         return screening_payload(screening)
     except HTTPException:

@@ -45,6 +45,12 @@ class Resume(Base):
     language_code: Mapped[str | None] = mapped_column(String(12), nullable=True)
     structured_profile: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     pipeline_stage: Mapped[str] = mapped_column(String(20), default="new", nullable=False)
+    content_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    duplicate_of_resume_id: Mapped[str | None] = mapped_column(
+        ForeignKey("resumes.id", ondelete="SET NULL"), nullable=True
+    )
+    duplicate_of_filename: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    duplicate_reason: Mapped[str | None] = mapped_column(String(80), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
     screening: Mapped[Screening] = relationship(back_populates="resumes")
     evaluation: Mapped["ResumeEvaluation | None"] = relationship(

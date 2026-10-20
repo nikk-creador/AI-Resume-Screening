@@ -8,6 +8,9 @@ export interface ResumeRow {
   stored: boolean;
   languageCode: string | null;
   pipelineStage: CandidatePipelineStage;
+  duplicateOfResumeId: string | null;
+  duplicateOfFilename: string | null;
+  duplicateReason: string | null;
   evaluation: ResumeEvaluation | null;
 }
 
@@ -120,6 +123,9 @@ export interface ResumeApiRecord {
   created_at: string;
   language_code: string | null;
   pipeline_stage: CandidatePipelineStage;
+  duplicate_of_resume_id: string | null;
+  duplicate_of_filename: string | null;
+  duplicate_reason: string | null;
   evaluation: ResumeEvaluation | null;
 }
 

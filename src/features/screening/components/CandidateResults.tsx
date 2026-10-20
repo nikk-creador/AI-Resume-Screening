@@ -172,6 +172,7 @@ export default function CandidateResults({
     [filteredResumes, ranks],
   );
   const retryableCount = failedCount + stoppedCount;
+  const duplicateCount = resumes.filter((resume) => resume.duplicateReason).length;
   const comparableResumes = useMemo(
     () => resumes.filter((resume) => resume.id && resume.evaluation?.status === 'completed'),
     [resumes],
@@ -351,6 +352,14 @@ export default function CandidateResults({
                 </Tag>
               )}
             </Text>
+            {resume.duplicateReason && (
+              <Tag
+                color="orange"
+                title={`${resume.duplicateReason}${resume.duplicateOfFilename ? ` · Similar to ${resume.duplicateOfFilename}` : ''}`}
+              >
+                Possible duplicate
+              </Tag>
+            )}
           </span>
         </div>
       ),
@@ -702,6 +711,16 @@ export default function CandidateResults({
             {activeCount} queued or processing · {failedCount} failed
           </Text>
         </div>
+      )}
+
+      {isSaved && duplicateCount > 0 && (
+        <Alert
+          className="service-notice"
+          type="warning"
+          showIcon
+          title={`${duplicateCount} possible duplicate ${duplicateCount === 1 ? 'resume' : 'resumes'} flagged`}
+          description="Exact file-content matches and files with the same name and size are retained for review. Check each flag before removing a candidate."
+        />
       )}
 
       <Modal
