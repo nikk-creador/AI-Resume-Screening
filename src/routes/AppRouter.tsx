@@ -3,6 +3,7 @@ import { Navigate, Route, Routes } from 'react-router-dom';
 
 import { routes } from './paths';
 import RequireAuth from './RequireAuth';
+import PublicHomePage from './PublicHomePage';
 import type { AuthMode } from '../features/auth/components/SignIn';
 import SignIn from '../features/auth/components/SignIn';
 import AcceptInvitationPage from '../features/organization/components/AcceptInvitationPage';
@@ -73,7 +74,7 @@ export default function AppRouter({
       <Route path={routes.verifyEmail} element={authPage('verify')} />
       <Route path={routes.resetPassword} element={authPage('reset')} />
       <Route path={routes.acceptInvitation} element={<AcceptInvitationPage user={user} />} />
-      {!user && <Route path={routes.home} element={<Navigate to={routes.signIn} replace />} />}
+      {!user && <Route path={routes.home} element={<PublicHomePage />} />}
       <Route element={<RequireAuth user={user} />}>
         {user && (
           <Route
