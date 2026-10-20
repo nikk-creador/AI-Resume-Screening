@@ -1598,6 +1598,11 @@ async def create_screening(
             write_audit_log(
                 db, user=user, company=company, action="screening.created",
                 resource_type="screening", resource_id=screening.id,
+                details={
+                    "resume_count": len(screening.resumes),
+                    "preferred_criteria_count": len(criteria),
+                    "job_requirements_count": len(requirements),
+                },
             )
         db.commit()
         db.refresh(screening)
@@ -1741,6 +1746,18 @@ def retry_screening(
             updated_at=datetime.now(timezone.utc),
         )
     )
+    company_id = getattr(user, "active_company_id", None)
+    company = db.get(Company, company_id) if company_id else None
+    if company is not None:
+        write_audit_log(
+            db,
+            user=user,
+            company=company,
+            action="screening.retry_requested",
+            resource_type="screening",
+            resource_id=screening_id,
+            details={"mode": mode, "queued_count": queued.rowcount or 0},
+        )
     db.commit()
     return {"queued_count": queued.rowcount or 0, "mode": mode}
 
@@ -1775,6 +1792,18 @@ def stop_screening(
             updated_at=datetime.now(timezone.utc),
         )
     )
+    company_id = getattr(user, "active_company_id", None)
+    company = db.get(Company, company_id) if company_id else None
+    if company is not None:
+        write_audit_log(
+            db,
+            user=user,
+            company=company,
+            action="screening.stopped",
+            resource_type="screening",
+            resource_id=screening_id,
+            details={"stopped_count": stopped.rowcount or 0},
+        )
     db.commit()
     return {"stopped_count": stopped.rowcount or 0}
 
@@ -1885,9 +1914,23 @@ async def upload_screening_resumes(
     )
     if screening is None:
         raise HTTPException(status_code=404, detail="Screening not found.")
+    previous_resume_ids = {resume.id for resume in screening.resumes}
     uploaded_paths: list[Path] = []
     try:
         await store_resume_uploads(db, screening, resumes, uploaded_paths)
+        uploaded_resume_ids = [
+            resume.id for resume in screening.resumes if resume.id not in previous_resume_ids
+        ]
+        company = db.get(Company, screening.company_id) if screening.company_id else None
+        if company is not None and uploaded_resume_ids:
+            write_audit_log(
+                db,
+                user=user,
+                company=company,
+                action="resumes.uploaded",
+                resource_type="resume_batch",
+                details={"count": len(uploaded_resume_ids), "resume_ids": uploaded_resume_ids},
+            )
         db.commit()
         return screening_payload(screening)
     except HTTPException:
@@ -1941,6 +1984,7 @@ def update_screening_requirements(
     requirement_ids = [item["id"] for item in requirements]
     if len(requirement_ids) != len(set(requirement_ids)):
         raise HTTPException(status_code=422, detail="Requirement IDs must be unique.")
+    previous_requirements = screening.job_requirements or []
     screening.job_requirements = requirements
     now = datetime.now(timezone.utc)
     for resume in screening.resumes:
@@ -1967,6 +2011,21 @@ def update_screening_requirements(
         evaluation.attempts = 0
         evaluation.available_at = None
         evaluation.updated_at = now
+    company = db.get(Company, screening.company_id) if screening.company_id else None
+    if company is not None:
+        write_audit_log(
+            db,
+            user=user,
+            company=company,
+            action="screening.requirements_updated",
+            resource_type="screening",
+            resource_id=screening.id,
+            details={
+                "previous_count": len(previous_requirements),
+                "requirement_count": len(requirements),
+                "requirements": [item["text"] for item in requirements],
+            },
+        )
     db.commit()
     return {"requirements": screening.job_requirements, "queued_count": len(screening.resumes)}
 
@@ -2004,6 +2063,10 @@ def update_screening(
         if payload.criteria is not None
         else screening.rubric.criteria if screening.rubric else []
     )
+    previous_name = screening.name
+    previous_job_description = screening.job_description_text
+    previous_criteria = screening.rubric.criteria if screening.rubric else []
+    previous_requirements_count = len(screening.job_requirements or [])
     previous_job_file = (
         UPLOAD_DIR / screening.job_description_storage_name
         if screening.job_description_storage_name
@@ -2047,6 +2110,15 @@ def update_screening(
         write_audit_log(
             db, user=user, company=company, action="screening.updated",
             resource_type="screening", resource_id=screening.id,
+            details={
+                "name_changed": previous_name != screening_name,
+                "job_description_changed": previous_job_description != job_description,
+                "criteria_changed": previous_criteria != criteria,
+                "previous_criteria": [item.get("name", "") for item in previous_criteria],
+                "criteria": [item.get("name", "") for item in criteria],
+                "previous_job_requirements_count": previous_requirements_count,
+                "job_requirements_reset": previous_requirements_count > 0,
+            },
         )
     db.commit()
     if previous_job_file is not None:
@@ -2077,6 +2149,7 @@ def delete_screening(
         write_audit_log(
             db, user=user, company=company, action="screening.deleted",
             resource_type="screening", resource_id=screening.id,
+            details={"screening_name": screening.name, "resume_count": len(screening.resumes)},
         )
     db.delete(screening)
     db.commit()
@@ -2131,6 +2204,7 @@ def review_resume_score(
         raise HTTPException(status_code=404, detail="Candidate evaluation not found.")
     if evaluation.status != "completed":
         raise HTTPException(status_code=409, detail="Wait for evaluation to complete before reviewing its score.")
+    previous_override_score = evaluation.reviewer_override_score
     evaluation.reviewer_override_score = payload.score
     evaluation.reviewer_override_note = payload.note.strip()
     evaluation.reviewer_id = user.id
@@ -2141,6 +2215,11 @@ def review_resume_score(
         write_audit_log(
             db, user=user, company=company, action="candidate.reviewed",
             resource_type="resume", resource_id=resume_id,
+            details={
+                "model_score": evaluation.score,
+                "previous_override_score": previous_override_score,
+                "override_score": payload.score,
+            },
         )
     db.commit()
     return {
@@ -2472,7 +2551,8 @@ def bulk_delete_resumes(
     if company is not None:
         write_audit_log(
             db, user=user, company=company, action="resumes.deleted",
-            resource_type="resume_batch", details={"count": len(records)},
+            resource_type="resume_batch",
+            details={"count": len(records), "resume_ids": [record.id for record in records]},
         )
     db.commit()
     for record in records:

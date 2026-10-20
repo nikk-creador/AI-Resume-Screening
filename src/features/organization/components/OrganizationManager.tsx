@@ -46,6 +46,10 @@ import { getErrorMessage } from '../../../utils/errors';
 
 const { Text } = Typography;
 
+function auditActionLabel(action: string) {
+  return action.replace(/[._]/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
 interface OrganizationManagerProps {
   open: boolean;
   activeCompany: CompanyAccess;
@@ -495,7 +499,10 @@ export default function OrganizationManager({
             ]}
           />
           <Divider />
-          <Text strong>Recent access activity</Text>
+          <Text strong>Recent audit history</Text>
+          <Text type="secondary">
+            Company actions, screening criteria changes, candidate reviews, and data deletions.
+          </Text>
           <Table<CompanyAuditEvent>
             rowKey="id"
             size="small"
@@ -503,8 +510,33 @@ export default function OrganizationManager({
             loading={auditQuery.isPending}
             dataSource={auditQuery.data?.events ?? []}
             style={{ marginTop: 12 }}
+            scroll={{ x: 820 }}
             columns={[
-              { title: 'Activity', dataIndex: 'action', key: 'action' },
+              {
+                title: 'Activity',
+                dataIndex: 'action',
+                key: 'action',
+                render: (action: string) => auditActionLabel(action),
+              },
+              {
+                title: 'Who',
+                dataIndex: 'actor_id',
+                key: 'actor',
+                render: (actorId: string | null) =>
+                  actorId
+                    ? (membersQuery.data?.find((member) => member.user_id === actorId)?.full_name ??
+                      actorId.slice(0, 8))
+                    : 'System',
+              },
+              {
+                title: 'Details',
+                dataIndex: 'details',
+                key: 'details',
+                render: (details: Record<string, unknown> | null) => {
+                  const summary = details ? JSON.stringify(details) : '';
+                  return summary ? <Text ellipsis={{ tooltip: summary }}>{summary}</Text> : '—';
+                },
+              },
               { title: 'Type', dataIndex: 'resource_type', key: 'resource_type' },
               {
                 title: 'When',
