@@ -61,6 +61,21 @@ class ScreeningRubric(Base):
     screening: Mapped[Screening] = relationship(back_populates="rubric")
 
 
+class ScreeningTemplate(Base):
+    __tablename__ = "screening_templates"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    company_id: Mapped[str] = mapped_column(
+        ForeignKey("companies.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    created_by_id: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False)
+    name: Mapped[str] = mapped_column(String(160), nullable=False)
+    criteria: Mapped[list[dict]] = mapped_column(JSON, default=list, nullable=False)
+    job_requirements: Mapped[list[dict]] = mapped_column(JSON, default=list, nullable=False)
+    scoring_config: Mapped[dict] = mapped_column(JSON, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+
 class ResumeEvaluation(Base):
     __tablename__ = "resume_evaluations"
 

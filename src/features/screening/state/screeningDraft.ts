@@ -15,6 +15,7 @@ export interface ScreeningDraftState {
   screeningName: string;
   criteria: EvaluationCriterion[];
   jobRequirements: JobRequirement[];
+  scoringConfig: ScreeningState['scoringConfig'];
 }
 
 export type ScreeningDraftAction =
@@ -27,7 +28,8 @@ export type ScreeningDraftAction =
   | { type: 'job-text'; value: string }
   | { type: 'screening-name'; value: string }
   | { type: 'criteria'; value: EvaluationCriterion[] }
-  | { type: 'job-requirements'; value: JobRequirement[] };
+  | { type: 'job-requirements'; value: JobRequirement[] }
+  | { type: 'scoring-config'; value: ScreeningState['scoringConfig'] };
 
 export function createScreeningDraft(screeningId: string | null): ScreeningDraftState {
   return {
@@ -39,6 +41,7 @@ export function createScreeningDraft(screeningId: string | null): ScreeningDraft
     screeningName: '',
     criteria: [],
     jobRequirements: [],
+    scoringConfig: null,
   };
 }
 
@@ -57,6 +60,7 @@ export function screeningDraftReducer(
         screeningName: action.screening.name,
         criteria: action.screening.criteria,
         jobRequirements: action.screening.jobRequirements,
+        scoringConfig: action.screening.scoringConfig,
       };
     case 'initialize':
       return action.value === state.screeningId
@@ -78,5 +82,7 @@ export function screeningDraftReducer(
       return { ...state, criteria: action.value };
     case 'job-requirements':
       return { ...state, jobRequirements: action.value };
+    case 'scoring-config':
+      return { ...state, scoringConfig: action.value };
   }
 }

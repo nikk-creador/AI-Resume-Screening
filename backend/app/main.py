@@ -49,7 +49,7 @@ from .database import (
     migrate_screening_schema,
 )
 from .evaluation import EvaluationCriterion, extract_pdf_text, suggest_criteria, test_ai_service
-from .matching import JobRequirement, default_matching_weights
+from .matching import JobRequirement, MatchingWeights, default_matching_weights
 from .models import (
     AuditLog,
     Company,
@@ -61,6 +61,7 @@ from .models import (
     ResumeEvaluation,
     Screening,
     ScreeningRubric,
+    ScreeningTemplate,
     User,
 )
 from .tenancy import (
@@ -153,6 +154,13 @@ class UpdateScreeningRequest(BaseModel):
 
 class UpdateRequirementsRequest(BaseModel):
     requirements: list[JobRequirement] = Field(min_length=1, max_length=40)
+
+
+class ScreeningTemplateRequest(BaseModel):
+    name: str = Field(min_length=2, max_length=160)
+    criteria: list[EvaluationCriterion] = Field(default_factory=list, max_length=MAX_EVALUATION_CRITERIA)
+    job_requirements: list[JobRequirement] = Field(default_factory=list, max_length=40)
+    scoring_config: MatchingWeights | None = None
 
 
 class ReviewOverrideRequest(BaseModel):
@@ -474,6 +482,43 @@ def parse_evaluation_criteria(value: str) -> list[dict]:
     if len(ids) != len(set(ids)):
         raise HTTPException(status_code=422, detail="Evaluation criteria must have unique IDs.")
     return [criterion.model_dump() for criterion in criteria]
+
+
+def parse_job_requirements(value: str) -> list[dict]:
+    try:
+        raw_requirements = json.loads(value)
+        if not isinstance(raw_requirements, list) or len(raw_requirements) > 40:
+            raise ValueError("Job requirements must be a list of at most 40 items.")
+        requirements = [JobRequirement.model_validate(item) for item in raw_requirements]
+    except (json.JSONDecodeError, ValidationError, TypeError, ValueError) as error:
+        raise HTTPException(status_code=422, detail="Job requirements are invalid.") from error
+    ids = [requirement.id for requirement in requirements]
+    if len(ids) != len(set(ids)):
+        raise HTTPException(status_code=422, detail="Requirement IDs must be unique.")
+    return [requirement.model_dump() for requirement in requirements]
+
+
+def parse_matching_config(value: str) -> dict:
+    if not value.strip():
+        return default_matching_weights().model_dump()
+    try:
+        raw_config = json.loads(value)
+        if not isinstance(raw_config, dict):
+            raise ValueError("Scoring settings must be an object.")
+        return MatchingWeights.model_validate(raw_config).model_dump()
+    except (json.JSONDecodeError, ValidationError, TypeError, ValueError) as error:
+        raise HTTPException(status_code=422, detail="Scoring settings are invalid.") from error
+
+
+def template_payload(template: ScreeningTemplate) -> dict:
+    return {
+        "id": template.id,
+        "name": template.name,
+        "criteria": template.criteria,
+        "job_requirements": template.job_requirements,
+        "scoring_config": template.scoring_config,
+        "created_at": iso_utc(template.created_at),
+    }
 
 
 async def store_resume_uploads(
@@ -1344,6 +1389,100 @@ def list_company_audit_log(
     ]}
 
 
+@app.get("/api/screening-templates", tags=["screening templates"])
+def list_screening_templates(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_company_user),
+):
+    require_company_permission(user, "can_view")
+    company_id = getattr(user, "active_company_id", None)
+    templates = db.scalars(
+        select(ScreeningTemplate)
+        .where(ScreeningTemplate.company_id == company_id)
+        .order_by(ScreeningTemplate.name, ScreeningTemplate.created_at.desc())
+    ).all()
+    return {"templates": [template_payload(template) for template in templates]}
+
+
+@app.post(
+    "/api/screening-templates",
+    status_code=status.HTTP_201_CREATED,
+    tags=["screening templates"],
+)
+def create_screening_template(
+    payload: ScreeningTemplateRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_company_user),
+):
+    require_company_permission(user, "can_edit")
+    company_id = getattr(user, "active_company_id", None)
+    company = db.get(Company, company_id) if company_id else None
+    if company is None:
+        raise HTTPException(status_code=404, detail="Company not found.")
+    name = payload.name.strip()
+    if len(name) < 2:
+        raise HTTPException(status_code=422, detail="Enter a template name.")
+    criteria = parse_evaluation_criteria(
+        json.dumps([item.model_dump() for item in payload.criteria])
+    )
+    requirements = [item.model_dump() for item in payload.job_requirements]
+    requirement_ids = [item["id"] for item in requirements]
+    if len(requirement_ids) != len(set(requirement_ids)):
+        raise HTTPException(status_code=422, detail="Requirement IDs must be unique.")
+    template = ScreeningTemplate(
+        id=str(uuid4()),
+        company_id=company.id,
+        created_by_id=user.id,
+        name=name,
+        criteria=criteria,
+        job_requirements=requirements,
+        scoring_config=(payload.scoring_config or default_matching_weights()).model_dump(),
+    )
+    db.add(template)
+    write_audit_log(
+        db,
+        user=user,
+        company=company,
+        action="screening_template.created",
+        resource_type="screening_template",
+        resource_id=template.id,
+    )
+    db.commit()
+    db.refresh(template)
+    return template_payload(template)
+
+
+@app.delete("/api/screening-templates/{template_id}", tags=["screening templates"])
+def delete_screening_template(
+    template_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_company_user),
+):
+    require_company_permission(user, "can_edit")
+    company_id = getattr(user, "active_company_id", None)
+    template = db.scalar(
+        select(ScreeningTemplate).where(
+            ScreeningTemplate.id == template_id,
+            ScreeningTemplate.company_id == company_id,
+        )
+    )
+    if template is None:
+        raise HTTPException(status_code=404, detail="Screening template not found.")
+    company = db.get(Company, company_id) if company_id else None
+    if company is not None:
+        write_audit_log(
+            db,
+            user=user,
+            company=company,
+            action="screening_template.deleted",
+            resource_type="screening_template",
+            resource_id=template.id,
+        )
+    db.delete(template)
+    db.commit()
+    return {"deleted": True, "template_id": template_id}
+
+
 @app.post("/api/screenings", status_code=status.HTTP_201_CREATED, tags=["screenings"])
 async def create_screening(
     screening_name: str = Form(..., min_length=2, max_length=160),
@@ -1351,6 +1490,8 @@ async def create_screening(
     job_description_text: str = Form(default=""),
     job_description_file: UploadFile | None = File(default=None),
     evaluation_criteria: str = Form(default="[]"),
+    job_requirements: str = Form(default="[]"),
+    scoring_config: str = Form(default=""),
     db: Session = Depends(get_db),
     user: User = Depends(get_company_user),
 ):
@@ -1358,6 +1499,8 @@ async def create_screening(
     if len(job_description_text) > MAX_JOB_DESCRIPTION_CHARS:
         raise HTTPException(status_code=422, detail=f"Keep the job description under {MAX_JOB_DESCRIPTION_CHARS:,} characters.")
     criteria = parse_evaluation_criteria(evaluation_criteria)
+    requirements = parse_job_requirements(job_requirements)
+    scoring_settings = parse_matching_config(scoring_config)
 
     clean_job_text = job_description_text.strip()
     if clean_job_text and count_words(clean_job_text) < MIN_JOB_DESCRIPTION_WORDS:
@@ -1374,7 +1517,8 @@ async def create_screening(
         owner_id=user.id,
         company_id=getattr(user, "active_company_id", None),
         job_description_text=clean_job_text,
-        scoring_config=default_matching_weights().model_dump(),
+        scoring_config=scoring_settings,
+        job_requirements=requirements or None,
     )
     screening.rubric = ScreeningRubric(criteria=criteria)
     try:

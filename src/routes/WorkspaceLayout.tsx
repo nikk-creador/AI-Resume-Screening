@@ -17,6 +17,7 @@ import JobDescriptionInput from '../features/screening/components/JobDescription
 import ResumeUploader from '../features/screening/components/ResumeUploader';
 import ScreeningCriteriaEditor from '../features/screening/components/ScreeningCriteriaEditor';
 import ScreeningSummary from '../features/screening/components/ScreeningSummary';
+import ScreeningTemplateControls from '../features/screening/components/ScreeningTemplateControls';
 import { useScreeningActions, useScreeningDetail } from '../features/screening/hooks/useScreenings';
 import {
   createScreeningDraft,
@@ -76,6 +77,7 @@ function normalizeScreening(data: ScreeningApiRecord): ScreeningState {
     jobText: data.job_description_text || '',
     criteria: data.criteria,
     jobRequirements: data.job_requirements || [],
+    scoringConfig: data.scoring_config,
   };
 }
 
@@ -98,8 +100,16 @@ export default function WorkspaceLayout({
   });
   const activeCompany = companies.find((company) => company.id === activeCompanyId) ?? companies[0];
   const [draft, dispatchDraft] = useReducer(screeningDraftReducer, null, createScreeningDraft);
-  const { screeningId, resumes, jobFile, jobText, screeningName, criteria, jobRequirements } =
-    draft;
+  const {
+    screeningId,
+    resumes,
+    jobFile,
+    jobText,
+    screeningName,
+    criteria,
+    jobRequirements,
+    scoringConfig,
+  } = draft;
   const resumesRef = useRef<ResumeRow[]>(resumes);
   const location = useLocation();
   const isNewScreeningRoute = location.pathname === routes.newScreening;
@@ -204,6 +214,8 @@ export default function WorkspaceLayout({
   const setCriteria = (value: typeof criteria) => dispatchDraft({ type: 'criteria', value });
   const setJobRequirements = (value: typeof jobRequirements) =>
     dispatchDraft({ type: 'job-requirements', value });
+  const setScoringConfig = (value: typeof scoringConfig) =>
+    dispatchDraft({ type: 'scoring-config', value });
   const syncSavedScreening = useEffectEvent(
     (data: ScreeningApiRecord | undefined, error: Error | null, isPending: boolean) => {
       if (!screeningId || isPending) return;
@@ -341,6 +353,7 @@ export default function WorkspaceLayout({
           jobText,
           criteria,
           jobRequirements,
+          scoringConfig,
         });
         const saved = normalizeScreening(data);
         activeScreeningId = saved.id;
@@ -348,6 +361,9 @@ export default function WorkspaceLayout({
         setScreeningName(saved.name);
         setJobFile(saved.jobFile);
         setJobText(saved.jobText);
+        setCriteria(saved.criteria);
+        setJobRequirements(saved.jobRequirements);
+        setScoringConfig(saved.scoringConfig);
         window.localStorage.setItem(SCREENING_STORAGE_KEY, saved.id);
       }
 
@@ -619,6 +635,22 @@ export default function WorkspaceLayout({
                   />
                 </div>
               )}
+
+              <ScreeningTemplateControls
+                companyId={activeCompany.id}
+                screeningName={screeningName}
+                criteria={criteria}
+                jobRequirements={jobRequirements}
+                scoringConfig={scoringConfig}
+                canManage={activeCompany.permissions.edit}
+                canApply={!screeningId && !loading}
+                onApply={(template) => {
+                  setScreeningName(template.name);
+                  setCriteria(template.criteria);
+                  setJobRequirements(template.job_requirements);
+                  setScoringConfig(template.scoring_config);
+                }}
+              />
 
               {(pageError || screeningLoadError) && (
                 <Alert

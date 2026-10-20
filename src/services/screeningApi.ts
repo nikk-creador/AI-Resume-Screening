@@ -113,11 +113,15 @@ export async function createScreening({
   jobFile,
   jobText,
   criteria,
+  jobRequirements,
+  scoringConfig,
 }: ScreeningCreateInput): Promise<ScreeningApiRecord> {
   const formData = new FormData();
   formData.append('screening_name', name);
   formData.append('job_description_text', jobText);
   formData.append('evaluation_criteria', JSON.stringify(criteria));
+  formData.append('job_requirements', JSON.stringify(jobRequirements));
+  if (scoringConfig) formData.append('scoring_config', JSON.stringify(scoringConfig));
   if (jobFile instanceof File) formData.append('job_description_file', jobFile);
   return request<ScreeningApiRecord>('/api/screenings', { method: 'POST', body: formData });
 }

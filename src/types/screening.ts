@@ -50,6 +50,17 @@ export interface JobRequirement {
   minimum_years: number | null;
 }
 
+export type MatchingScoringConfig = Record<string, number>;
+
+export interface ScreeningTemplate {
+  id: string;
+  name: string;
+  criteria: EvaluationCriterion[];
+  job_requirements: JobRequirement[];
+  scoring_config: MatchingScoringConfig;
+  created_at: string;
+}
+
 export interface ResumeEvaluation {
   status: 'queued' | 'processing' | 'completed' | 'failed' | 'stopped';
   score: number | null;
@@ -147,6 +158,7 @@ export interface ScreeningCreateInput {
   jobText: string;
   criteria: EvaluationCriterion[];
   jobRequirements: JobRequirement[];
+  scoringConfig?: MatchingScoringConfig | null;
 }
 
 export interface ScreeningState {
@@ -157,6 +169,7 @@ export interface ScreeningState {
   jobText: string;
   criteria: EvaluationCriterion[];
   jobRequirements: JobRequirement[];
+  scoringConfig: MatchingScoringConfig | null;
 }
 
 export interface CandidateRow extends ResumeRow {

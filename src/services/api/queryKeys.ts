@@ -13,6 +13,7 @@ export const queryKeys = {
     details: () => [...queryKeys.screenings.all(), 'detail'] as const,
     detail: (id: string) => [...queryKeys.screenings.details(), id] as const,
   },
+  screeningTemplates: (companyId: string) => ['screening-templates', companyId] as const,
   organization: {
     root: ['organization'] as const,
     members: (companyId: string) => [...queryKeys.organization.root, 'members', companyId] as const,
