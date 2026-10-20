@@ -828,6 +828,15 @@ section.section-card.results-card {
   padding: 10px 0;
   border-top: 1px solid var(--color-border, #e8e8e8);
 }
+.candidate-comparison-cell {
+  display: grid;
+  min-width: 190px;
+  gap: 8px;
+  white-space: normal;
+}
+.candidate-comparison-table .ant-table-cell {
+  vertical-align: top;
+}
 .candidate-evidence ul {
   margin: 5px 0 0;
   padding-left: 18px;

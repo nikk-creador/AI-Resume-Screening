@@ -10,6 +10,7 @@ import {
   Modal,
   Popconfirm,
   Popover,
+  Select,
   Space,
   Table,
   Tag,
@@ -91,6 +92,8 @@ export default function CandidateResults({
   onReview,
 }: CandidateResultsProps) {
   const [retryDialogOpen, setRetryDialogOpen] = useState(false);
+  const [comparisonOpen, setComparisonOpen] = useState(false);
+  const [comparisonKeys, setComparisonKeys] = useState<string[]>([]);
   const [reviewTarget, setReviewTarget] = useState<ResumeRow | null>(null);
   const [reviewScore, setReviewScore] = useState<number | null>(null);
   const [reviewNote, setReviewNote] = useState('');
@@ -144,6 +147,26 @@ export default function CandidateResults({
     [filteredResumes, ranks],
   );
   const retryableCount = failedCount + stoppedCount;
+  const comparableResumes = useMemo(
+    () => resumes.filter((resume) => resume.id && resume.evaluation?.status === 'completed'),
+    [resumes],
+  );
+  const comparisonResumes = comparisonKeys
+    .map((key) => comparableResumes.find((resume) => resume.key === key))
+    .filter((resume): resume is ResumeRow => Boolean(resume));
+  const comparisonCriteria = Array.from(
+    new Map(
+      comparisonResumes.flatMap((resume) =>
+        (resume.evaluation?.assessments ?? []).map((assessment) => [
+          assessment.criterion_id,
+          assessment,
+        ]),
+      ),
+    ).values(),
+  ).sort((first, second) => {
+    if (first.required !== second.required) return first.required ? -1 : 1;
+    return first.name.localeCompare(second.name);
+  });
   const downloadResume = async (resumeId: string, filename: string) => {
     try {
       await downloadApiFile(`/api/resumes/${encodeURIComponent(resumeId)}/download`, filename);
@@ -441,6 +464,9 @@ export default function CandidateResults({
           </Text>
         </div>
         <div className="results-actions">
+          {isSaved && comparableResumes.length > 1 && (
+            <Button onClick={() => setComparisonOpen(true)}>Compare candidates</Button>
+          )}
           {canEdit && isSaved && resumes.length > 0 && (
             <Button
               icon={<ReloadOutlined />}
@@ -500,6 +526,103 @@ export default function CandidateResults({
           </Text>
         </div>
       )}
+
+      <Modal
+        title="Compare shortlisted candidates"
+        open={comparisonOpen}
+        onCancel={() => setComparisonOpen(false)}
+        footer={null}
+        width={1200}
+        destroyOnHidden
+      >
+        <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+          <Text type="secondary">
+            Compare completed evaluations from this screening against the same job criteria. Scores
+            and evidence are shown for each requirement.
+          </Text>
+          <Select
+            mode="multiple"
+            value={comparisonKeys}
+            onChange={(keys: string[]) => {
+              if (keys.length > 4) {
+                messageApi.info('Compare up to four candidates at a time.');
+                setComparisonKeys(keys.slice(0, 4));
+                return;
+              }
+              setComparisonKeys(keys);
+            }}
+            options={comparableResumes.map((resume) => ({
+              value: resume.key,
+              label: `${displayName(resume.name)} · ${resume.evaluation?.score ?? '—'}/100`,
+            }))}
+            placeholder="Choose up to four candidates"
+            style={{ width: '100%' }}
+          />
+          {comparisonResumes.length > 0 ? (
+            <Table
+              className="candidate-comparison-table"
+              rowKey="criterion_id"
+              dataSource={comparisonCriteria}
+              pagination={false}
+              scroll={{ x: 560 + comparisonResumes.length * 260 }}
+              columns={[
+                {
+                  title: 'JOB CRITERION',
+                  dataIndex: 'name',
+                  key: 'criterion',
+                  fixed: 'left',
+                  width: 240,
+                  render: (name: string, assessment) => (
+                    <Space direction="vertical" size={4}>
+                      <Text strong>{name}</Text>
+                      <Tag>{assessment.required ? 'Must-have' : 'Nice-to-have'}</Tag>
+                    </Space>
+                  ),
+                },
+                ...comparisonResumes.map((resume) => ({
+                  title: (
+                    <Space direction="vertical" size={0}>
+                      <Text strong>{displayName(resume.name)}</Text>
+                      <Text type="secondary">
+                        Final score: {resume.evaluation?.score ?? '—'}/100
+                      </Text>
+                    </Space>
+                  ),
+                  key: resume.key,
+                  width: 260,
+                  render: (_: unknown, criterion: (typeof comparisonCriteria)[number]) => {
+                    const assessment = resume.evaluation?.assessments?.find(
+                      (item) => item.criterion_id === criterion.criterion_id,
+                    );
+                    if (!assessment) return <Text type="secondary">No assessment</Text>;
+                    return (
+                      <div className="candidate-comparison-cell">
+                        <Text strong>
+                          {assessment.score}/100 · {assessment.status || 'Scored'}
+                        </Text>
+                        {assessment.evidence.length ? (
+                          assessment.evidence.map((quote, index) => (
+                            <Text type="secondary" key={`${assessment.criterion_id}-${index}`}>
+                              “{quote}”
+                            </Text>
+                          ))
+                        ) : (
+                          <Text type="secondary">No resume evidence recorded.</Text>
+                        )}
+                      </div>
+                    );
+                  },
+                })),
+              ]}
+              locale={{
+                emptyText: 'Selected candidates have no criterion assessments to compare.',
+              }}
+            />
+          ) : (
+            <Empty description="Select at least one candidate to view scores and evidence." />
+          )}
+        </Space>
+      </Modal>
 
       <Modal
         title={
