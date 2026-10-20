@@ -52,6 +52,8 @@ from .evaluation import EvaluationCriterion, extract_pdf_text, suggest_criteria,
 from .matching import JobRequirement, MatchingWeights, default_matching_weights
 from .models import (
     AuditLog,
+    CandidateAssignment,
+    CandidateReview,
     Company,
     CompanyInvitation,
     CompanyMembership,
@@ -164,6 +166,15 @@ class ScreeningTemplateRequest(BaseModel):
 
 
 class ReviewOverrideRequest(BaseModel):
+    score: int = Field(ge=0, le=100)
+    note: str = Field(min_length=3, max_length=2000)
+
+
+class CandidateAssignmentRequest(BaseModel):
+    reviewer_ids: list[str] = Field(default_factory=list, max_length=20)
+
+
+class CandidateTeamReviewRequest(BaseModel):
     score: int = Field(ge=0, le=100)
     note: str = Field(min_length=3, max_length=2000)
 
@@ -2045,6 +2056,239 @@ def review_resume_score(
         "score": evaluation.reviewer_override_score,
         "reviewer_note": evaluation.reviewer_override_note,
         "reviewer_updated_at": iso_utc(evaluation.reviewer_updated_at),
+    }
+
+
+@app.get("/api/companies/{company_id}/reviewers", tags=["candidate reviews"])
+def list_company_reviewers(
+    company_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_company_user),
+):
+    require_selected_company(user, company_id)
+    require_company_permission(user, "can_edit")
+    rows = db.execute(
+        select(CompanyMembership, User)
+        .join(User, User.id == CompanyMembership.user_id)
+        .where(
+            CompanyMembership.company_id == company_id,
+            CompanyMembership.is_active.is_(True),
+            CompanyMembership.can_view.is_(True),
+        )
+        .order_by(User.full_name, User.email)
+    ).all()
+    return {
+        "reviewers": [
+            {"user_id": reviewer.id, "full_name": reviewer.full_name, "email": reviewer.email}
+            for _membership, reviewer in rows
+        ]
+    }
+
+
+@app.get("/api/screenings/{screening_id}/team-reviews", tags=["candidate reviews"])
+def list_screening_team_reviews(
+    screening_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_company_user),
+):
+    require_company_permission(user, "can_view")
+    screening = db.scalar(
+        select(Screening)
+        .options(selectinload(Screening.resumes))
+        .where(Screening.id == screening_id, screening_company_scope(user))
+    )
+    if screening is None:
+        raise HTTPException(status_code=404, detail="Screening not found.")
+    resume_ids = [resume.id for resume in screening.resumes]
+    if not resume_ids:
+        return {"candidates": []}
+    assignment_rows = db.execute(
+        select(CandidateAssignment, User)
+        .join(User, User.id == CandidateAssignment.reviewer_id)
+        .where(CandidateAssignment.resume_id.in_(resume_ids))
+        .order_by(User.full_name, User.email)
+    ).all()
+    review_rows = db.execute(
+        select(CandidateReview, User)
+        .join(User, User.id == CandidateReview.reviewer_id)
+        .where(CandidateReview.resume_id.in_(resume_ids))
+        .order_by(CandidateReview.updated_at.desc())
+    ).all()
+    assignments_by_resume: dict[str, list[dict]] = {}
+    for assignment, reviewer in assignment_rows:
+        assignments_by_resume.setdefault(assignment.resume_id, []).append(
+            {
+                "reviewer_id": reviewer.id,
+                "full_name": reviewer.full_name,
+                "email": reviewer.email,
+                "is_active": assignment.is_active,
+                "assigned_at": iso_utc(assignment.assigned_at),
+            }
+        )
+    reviews_by_resume: dict[str, list[dict]] = {}
+    for review, reviewer in review_rows:
+        reviews_by_resume.setdefault(review.resume_id, []).append(
+            {
+                "reviewer_id": reviewer.id,
+                "full_name": reviewer.full_name,
+                "score": review.score,
+                "note": review.note,
+                "created_at": iso_utc(review.created_at),
+                "updated_at": iso_utc(review.updated_at),
+            }
+        )
+    return {
+        "candidates": [
+            {
+                "resume_id": resume.id,
+                "assignments": assignments_by_resume.get(resume.id, []),
+                "reviews": reviews_by_resume.get(resume.id, []),
+            }
+            for resume in screening.resumes
+        ]
+    }
+
+
+@app.put("/api/resumes/{resume_id}/assignments", tags=["candidate reviews"])
+def update_candidate_assignments(
+    resume_id: str,
+    payload: CandidateAssignmentRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_company_user),
+):
+    require_company_permission(user, "can_edit")
+    resume = db.scalar(
+        select(Resume)
+        .join(Screening)
+        .where(Resume.id == resume_id, screening_company_scope(user))
+    )
+    if resume is None:
+        raise HTTPException(status_code=404, detail="Resume not found.")
+    company_id = getattr(user, "active_company_id", None)
+    reviewer_ids = list(dict.fromkeys(payload.reviewer_ids))
+    valid_reviewer_ids = set(
+        db.scalars(
+            select(CompanyMembership.user_id).where(
+                CompanyMembership.company_id == company_id,
+                CompanyMembership.user_id.in_(reviewer_ids) if reviewer_ids else text("1 = 0"),
+                CompanyMembership.is_active.is_(True),
+                CompanyMembership.can_view.is_(True),
+            )
+        ).all()
+    )
+    if valid_reviewer_ids != set(reviewer_ids):
+        raise HTTPException(
+            status_code=422,
+            detail="Assign reviews only to active company members with candidate view access.",
+        )
+    now = datetime.now(timezone.utc)
+    assignments = list(
+        db.scalars(
+            select(CandidateAssignment).where(CandidateAssignment.resume_id == resume_id)
+        ).all()
+    )
+    assignments_by_user = {assignment.reviewer_id: assignment for assignment in assignments}
+    for assignment in assignments:
+        is_selected = assignment.reviewer_id in valid_reviewer_ids
+        if assignment.is_active != is_selected:
+            assignment.is_active = is_selected
+            if is_selected:
+                assignment.assigned_by_id = user.id
+                assignment.assigned_at = now
+    for reviewer_id in valid_reviewer_ids - assignments_by_user.keys():
+        db.add(
+            CandidateAssignment(
+                id=str(uuid4()),
+                resume_id=resume_id,
+                reviewer_id=reviewer_id,
+                assigned_by_id=user.id,
+                is_active=True,
+                assigned_at=now,
+            )
+        )
+    company = db.get(Company, company_id) if company_id else None
+    if company is not None:
+        write_audit_log(
+            db,
+            user=user,
+            company=company,
+            action="candidate.reviewers_assigned",
+            resource_type="resume",
+            resource_id=resume_id,
+            details={"reviewer_ids": reviewer_ids},
+        )
+    db.commit()
+    return {"resume_id": resume_id, "reviewer_ids": reviewer_ids}
+
+
+@app.put("/api/resumes/{resume_id}/team-review", tags=["candidate reviews"])
+def save_candidate_team_review(
+    resume_id: str,
+    payload: CandidateTeamReviewRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_company_user),
+):
+    require_company_permission(user, "can_view")
+    resume = db.scalar(
+        select(Resume)
+        .join(Screening)
+        .where(Resume.id == resume_id, screening_company_scope(user))
+    )
+    if resume is None:
+        raise HTTPException(status_code=404, detail="Resume not found.")
+    assignment = db.scalar(
+        select(CandidateAssignment).where(
+            CandidateAssignment.resume_id == resume_id,
+            CandidateAssignment.reviewer_id == user.id,
+            CandidateAssignment.is_active.is_(True),
+        )
+    )
+    if assignment is None:
+        raise HTTPException(status_code=403, detail="You are not assigned to review this candidate.")
+    note = payload.note.strip()
+    if len(note) < 3:
+        raise HTTPException(status_code=422, detail="Add a review note with at least three characters.")
+    review = db.scalar(
+        select(CandidateReview).where(
+            CandidateReview.resume_id == resume_id,
+            CandidateReview.reviewer_id == user.id,
+        )
+    )
+    now = datetime.now(timezone.utc)
+    if review is None:
+        review = CandidateReview(
+            id=str(uuid4()),
+            resume_id=resume_id,
+            reviewer_id=user.id,
+            score=payload.score,
+            note=note,
+            created_at=now,
+            updated_at=now,
+        )
+        db.add(review)
+    else:
+        review.score = payload.score
+        review.note = note
+        review.updated_at = now
+    company_id = getattr(user, "active_company_id", None)
+    company = db.get(Company, company_id) if company_id else None
+    if company is not None:
+        write_audit_log(
+            db,
+            user=user,
+            company=company,
+            action="candidate.team_reviewed",
+            resource_type="resume",
+            resource_id=resume_id,
+            details={"score": payload.score},
+        )
+    db.commit()
+    return {
+        "resume_id": resume_id,
+        "reviewer_id": user.id,
+        "score": review.score,
+        "note": review.note,
+        "updated_at": iso_utc(review.updated_at),
     }
 
 

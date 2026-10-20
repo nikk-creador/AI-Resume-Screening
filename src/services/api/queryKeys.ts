@@ -14,6 +14,8 @@ export const queryKeys = {
     detail: (id: string) => [...queryKeys.screenings.details(), id] as const,
   },
   screeningTemplates: (companyId: string) => ['screening-templates', companyId] as const,
+  teamReviews: (screeningId: string) => ['team-reviews', screeningId] as const,
+  companyReviewers: (companyId: string) => ['company-reviewers', companyId] as const,
   organization: {
     root: ['organization'] as const,
     members: (companyId: string) => [...queryKeys.organization.root, 'members', companyId] as const,

@@ -20,6 +20,7 @@ import type { ColumnsType } from 'antd/es/table';
 
 import { DownloadOutlined, ReloadOutlined, StopOutlined } from '@ant-design/icons';
 
+import TeamReviewPanel from './TeamReviewPanel';
 import { downloadApiFile } from '../../../services/api/client';
 import type { CandidateRow, ResumeRow, RetryMode } from '../../../types/screening';
 import { getErrorMessage } from '../../../utils/errors';
@@ -44,6 +45,8 @@ interface CandidateResultsProps {
   resumes: ResumeRow[];
   screeningId: string | null;
   screeningName: string;
+  companyId: string;
+  currentUserId: string;
   canEdit: boolean;
   canDownload: boolean;
   query: string;
@@ -71,6 +74,8 @@ export default function CandidateResults({
   resumes,
   screeningId,
   screeningName,
+  companyId,
+  currentUserId,
   canEdit,
   canDownload,
   query,
@@ -95,6 +100,7 @@ export default function CandidateResults({
 }: CandidateResultsProps) {
   const [retryDialogOpen, setRetryDialogOpen] = useState(false);
   const [comparisonOpen, setComparisonOpen] = useState(false);
+  const [teamReviewOpen, setTeamReviewOpen] = useState(false);
   const [comparisonKeys, setComparisonKeys] = useState<string[]>([]);
   const [reviewTarget, setReviewTarget] = useState<ResumeRow | null>(null);
   const [reviewScore, setReviewScore] = useState<number | null>(null);
@@ -560,6 +566,9 @@ export default function CandidateResults({
               Export scorecard
             </Button>
           )}
+          {isSaved && resumes.some((resume) => resume.id) && (
+            <Button onClick={() => setTeamReviewOpen(true)}>Team reviews</Button>
+          )}
           {canEdit && isSaved && resumes.length > 0 && (
             <Button
               icon={<ReloadOutlined />}
@@ -894,6 +903,15 @@ export default function CandidateResults({
           Screening reference: {screeningId.slice(0, 8)}
         </Text>
       )}
+      <TeamReviewPanel
+        open={teamReviewOpen}
+        onClose={() => setTeamReviewOpen(false)}
+        screeningId={screeningId}
+        companyId={companyId}
+        currentUserId={currentUserId}
+        canAssign={canEdit}
+        resumes={resumes}
+      />
     </section>
   );
 }

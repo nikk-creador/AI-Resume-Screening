@@ -51,6 +51,35 @@ class Resume(Base):
     )
 
 
+class CandidateAssignment(Base):
+    __tablename__ = "candidate_assignments"
+    __table_args__ = (UniqueConstraint("resume_id", "reviewer_id"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    resume_id: Mapped[str] = mapped_column(
+        ForeignKey("resumes.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    reviewer_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True, nullable=False)
+    assigned_by_id: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    assigned_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+
+class CandidateReview(Base):
+    __tablename__ = "candidate_reviews"
+    __table_args__ = (UniqueConstraint("resume_id", "reviewer_id"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    resume_id: Mapped[str] = mapped_column(
+        ForeignKey("resumes.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    reviewer_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True, nullable=False)
+    score: Mapped[int] = mapped_column(Integer, nullable=False)
+    note: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+
 class ScreeningRubric(Base):
     __tablename__ = "screening_rubrics"
 

@@ -851,6 +851,28 @@ section.section-card.results-card {
 .candidate-comparison-table .ant-table-cell {
   vertical-align: top;
 }
+.team-review-assignees,
+.team-review-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.team-review-assignees {
+  margin-top: 8px;
+}
+.team-review-heading {
+  justify-content: space-between;
+}
+.team-review-entry {
+  display: grid;
+  width: 100%;
+  gap: 4px;
+}
+.team-review-entry .ant-typography-paragraph {
+  margin: 3px 0 0;
+  white-space: pre-wrap;
+}
 .candidate-evidence ul {
   margin: 5px 0 0;
   padding-left: 18px;

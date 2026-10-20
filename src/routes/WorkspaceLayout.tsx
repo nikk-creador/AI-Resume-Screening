@@ -722,6 +722,8 @@ export default function WorkspaceLayout({
                 resumes={resumes}
                 screeningId={screeningId}
                 screeningName={screeningName}
+                companyId={activeCompany.id}
+                currentUserId={user.id}
                 canEdit={activeCompany.permissions.edit}
                 canDownload={activeCompany.permissions.download}
                 query={query}
