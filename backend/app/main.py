@@ -179,6 +179,10 @@ class CandidateTeamReviewRequest(BaseModel):
     note: str = Field(min_length=3, max_length=2000)
 
 
+class UpdatePipelineStageRequest(BaseModel):
+    stage: Literal["new", "in_review", "interview", "decision"]
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     Base.metadata.create_all(bind=engine)
@@ -439,6 +443,7 @@ def screening_payload(screening: Screening) -> dict:
                 "content_type": resume.content_type,
                 "created_at": iso_utc(resume.created_at),
                 "language_code": resume.language_code,
+                "pipeline_stage": resume.pipeline_stage,
                 "evaluation": (
                     {
                         "status": resume.evaluation.status,
@@ -2057,6 +2062,39 @@ def review_resume_score(
         "reviewer_note": evaluation.reviewer_override_note,
         "reviewer_updated_at": iso_utc(evaluation.reviewer_updated_at),
     }
+
+
+@app.patch("/api/resumes/{resume_id}/pipeline-stage", tags=["candidate pipeline"])
+def update_candidate_pipeline_stage(
+    resume_id: str,
+    payload: UpdatePipelineStageRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_company_user),
+):
+    require_company_permission(user, "can_edit")
+    resume = db.scalar(
+        select(Resume)
+        .join(Screening)
+        .where(Resume.id == resume_id, screening_company_scope(user))
+    )
+    if resume is None:
+        raise HTTPException(status_code=404, detail="Resume not found.")
+    previous_stage = resume.pipeline_stage
+    resume.pipeline_stage = payload.stage
+    company_id = getattr(user, "active_company_id", None)
+    company = db.get(Company, company_id) if company_id else None
+    if company is not None:
+        write_audit_log(
+            db,
+            user=user,
+            company=company,
+            action="candidate.pipeline_stage_changed",
+            resource_type="resume",
+            resource_id=resume_id,
+            details={"from": previous_stage, "to": payload.stage},
+        )
+    db.commit()
+    return {"resume_id": resume_id, "pipeline_stage": resume.pipeline_stage}
 
 
 @app.get("/api/companies/{company_id}/reviewers", tags=["candidate reviews"])

@@ -52,6 +52,7 @@ function localResume(file: File): ResumeRow {
     file,
     stored: false,
     languageCode: null,
+    pipelineStage: 'new',
     evaluation: null,
   };
 }
@@ -69,6 +70,7 @@ function normalizeScreening(data: ScreeningApiRecord): ScreeningState {
       file: null,
       stored: true,
       languageCode: resume.language_code,
+      pipelineStage: resume.pipeline_stage,
       evaluation: resume.evaluation,
     })),
     jobFile: data.job_description_filename
@@ -753,6 +755,12 @@ export default function WorkspaceLayout({
                 stopping={stopping}
                 onRetry={retryScreening}
                 onStop={stopCurrentScreening}
+                onPipelineStageChange={async (resumeId, stage) => {
+                  if (!screeningId) return;
+                  await screeningActions.updatePipelineStage({ screeningId, resumeId, stage });
+                  const saved = normalizeScreening(await fetchScreening(screeningId));
+                  updateResumes(saved.resumes);
+                }}
                 onReview={async (resumeId, score, note) => {
                   try {
                     await screeningActions.review({ resumeId, score, note, screeningId });

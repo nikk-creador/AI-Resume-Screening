@@ -11,11 +11,13 @@ import {
   reviewResumeScore,
   stopScreening,
   suggestScreeningCriteria,
+  updateCandidatePipelineStage,
   updateScreening,
   updateScreeningRequirements,
   uploadResumeBatch,
 } from '../../../services/screeningApi';
 import type {
+  CandidatePipelineStage,
   EvaluationCriterion,
   JobRequirement,
   RetryMode,
@@ -175,6 +177,17 @@ export function useScreeningActions() {
       }
     },
   });
+  const pipelineStageMutation = useMutation({
+    mutationFn: ({
+      resumeId,
+      stage,
+    }: {
+      screeningId: string;
+      resumeId: string;
+      stage: CandidatePipelineStage;
+    }) => updateCandidatePipelineStage(resumeId, stage),
+    onSuccess: (_result, input) => invalidateScreening(input.screeningId),
+  });
   const requirementsMutation = useMutation({
     mutationFn: ({
       screeningId,
@@ -198,6 +211,7 @@ export function useScreeningActions() {
     retry: retryMutation.mutateAsync,
     stop: stopMutation.mutateAsync,
     review: reviewMutation.mutateAsync,
+    updatePipelineStage: pipelineStageMutation.mutateAsync,
     updateRequirements: requirementsMutation.mutateAsync,
     suggestCriteria: suggestCriteriaMutation.mutateAsync,
   };

@@ -1,6 +1,7 @@
 import { apiRequest as request } from './api/client';
 import type {
   EvaluationCriterion,
+  CandidatePipelineStage,
   JobRequirement,
   RetryMode,
   ScreeningApiRecord,
@@ -68,6 +69,16 @@ export function reviewResumeScore(
   return request(`/api/resumes/${encodeURIComponent(resumeId)}/review`, {
     method: 'PATCH',
     body: JSON.stringify({ score, note }),
+  });
+}
+
+export function updateCandidatePipelineStage(
+  resumeId: string,
+  stage: CandidatePipelineStage,
+): Promise<{ resume_id: string; pipeline_stage: CandidatePipelineStage }> {
+  return request(`/api/resumes/${encodeURIComponent(resumeId)}/pipeline-stage`, {
+    method: 'PATCH',
+    body: JSON.stringify({ stage }),
   });
 }
 

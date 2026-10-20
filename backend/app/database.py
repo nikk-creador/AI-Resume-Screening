@@ -46,7 +46,11 @@ def migrate_screening_schema(bind=engine) -> None:
             "reviewer_id": String(36),
             "reviewer_updated_at": DateTime(timezone=True),
         },
-        "resumes": {"language_code": String(12), "structured_profile": JSON()},
+        "resumes": {
+            "language_code": String(12),
+            "structured_profile": JSON(),
+            "pipeline_stage": String(20),
+        },
         "users": {"is_verified": Boolean(), "default_company_id": String(36)},
         "organizations": {"is_active": Boolean(), "created_at": DateTime(timezone=True)},
         "companies": {
@@ -128,6 +132,14 @@ def migrate_screening_schema(bind=engine) -> None:
                 if table_name == "users" and column_name == "is_verified":
                     connection.execute(
                         text("ALTER TABLE users ADD COLUMN is_verified BOOLEAN NOT NULL DEFAULT TRUE")
+                    )
+                    continue
+                if table_name == "resumes" and column_name == "pipeline_stage":
+                    connection.execute(
+                        text(
+                            "ALTER TABLE resumes ADD COLUMN pipeline_stage "
+                            "VARCHAR(20) NOT NULL DEFAULT 'new'"
+                        )
                     )
                     continue
                 if table_name in {"organization_memberships", "company_memberships"} and column_name == "is_active":

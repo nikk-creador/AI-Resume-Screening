@@ -44,6 +44,7 @@ class Resume(Base):
     storage_name: Mapped[str] = mapped_column(String(80), nullable=False, unique=True)
     language_code: Mapped[str | None] = mapped_column(String(12), nullable=True)
     structured_profile: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    pipeline_stage: Mapped[str] = mapped_column(String(20), default="new", nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
     screening: Mapped[Screening] = relationship(back_populates="resumes")
     evaluation: Mapped["ResumeEvaluation | None"] = relationship(

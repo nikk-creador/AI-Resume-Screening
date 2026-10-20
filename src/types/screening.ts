@@ -7,8 +7,11 @@ export interface ResumeRow {
   file: File | null;
   stored: boolean;
   languageCode: string | null;
+  pipelineStage: CandidatePipelineStage;
   evaluation: ResumeEvaluation | null;
 }
+
+export type CandidatePipelineStage = 'new' | 'in_review' | 'interview' | 'decision';
 
 export interface EvaluationCriterion {
   id: string;
@@ -116,6 +119,7 @@ export interface ResumeApiRecord {
   content_type: string | null;
   created_at: string;
   language_code: string | null;
+  pipeline_stage: CandidatePipelineStage;
   evaluation: ResumeEvaluation | null;
 }
 

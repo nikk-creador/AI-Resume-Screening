@@ -22,7 +22,12 @@ import { DownloadOutlined, ReloadOutlined, StopOutlined } from '@ant-design/icon
 
 import TeamReviewPanel from './TeamReviewPanel';
 import { downloadApiFile } from '../../../services/api/client';
-import type { CandidateRow, ResumeRow, RetryMode } from '../../../types/screening';
+import type {
+  CandidatePipelineStage,
+  CandidateRow,
+  ResumeRow,
+  RetryMode,
+} from '../../../types/screening';
 import { getErrorMessage } from '../../../utils/errors';
 import {
   displayName,
@@ -31,6 +36,12 @@ import {
 } from '../../../utils/screeningValidation';
 
 const { Text, Title } = Typography;
+const pipelineStageOptions: { value: CandidatePipelineStage; label: string }[] = [
+  { value: 'new', label: 'New' },
+  { value: 'in_review', label: 'In Review' },
+  { value: 'interview', label: 'Interview' },
+  { value: 'decision', label: 'Decision' },
+];
 
 function getKeyedEvidence(criterionId: string, evidence: string[]) {
   const occurrences = new Map<string, number>();
@@ -68,6 +79,7 @@ interface CandidateResultsProps {
   onRetry: (mode: RetryMode) => void;
   onStop: () => void;
   onReview: (resumeId: string, score: number, note: string) => Promise<void>;
+  onPipelineStageChange: (resumeId: string, stage: CandidatePipelineStage) => Promise<void>;
 }
 
 export default function CandidateResults({
@@ -97,6 +109,7 @@ export default function CandidateResults({
   onRetry,
   onStop,
   onReview,
+  onPipelineStageChange,
 }: CandidateResultsProps) {
   const [retryDialogOpen, setRetryDialogOpen] = useState(false);
   const [comparisonOpen, setComparisonOpen] = useState(false);
@@ -106,6 +119,7 @@ export default function CandidateResults({
   const [reviewScore, setReviewScore] = useState<number | null>(null);
   const [reviewNote, setReviewNote] = useState('');
   const [savingReview, setSavingReview] = useState(false);
+  const [updatingPipelineStageId, setUpdatingPipelineStageId] = useState<string | null>(null);
   const [messageApi, contextHolder] = message.useMessage();
   const filteredResumes = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -180,6 +194,17 @@ export default function CandidateResults({
       await downloadApiFile(`/api/resumes/${encodeURIComponent(resumeId)}/download`, filename);
     } catch (error: unknown) {
       messageApi.error(getErrorMessage(error, 'Could not download this resume.'));
+    }
+  };
+  const updatePipelineStage = async (resumeId: string, stage: CandidatePipelineStage) => {
+    setUpdatingPipelineStageId(resumeId);
+    try {
+      await onPipelineStageChange(resumeId, stage);
+      messageApi.success('Candidate stage updated.');
+    } catch (error: unknown) {
+      messageApi.error(getErrorMessage(error, 'Could not update the candidate stage.'));
+    } finally {
+      setUpdatingPipelineStageId(null);
     }
   };
   const exportScorecard = () => {
@@ -474,6 +499,29 @@ export default function CandidateResults({
           </div>
         );
       },
+    },
+    {
+      title: 'PIPELINE STAGE',
+      dataIndex: 'pipelineStage',
+      key: 'pipelineStage',
+      width: 145,
+      render: (stage: CandidatePipelineStage, resume: CandidateRow) =>
+        canEdit && resume.id ? (
+          <Select
+            size="small"
+            value={stage}
+            loading={updatingPipelineStageId === resume.id}
+            disabled={updatingPipelineStageId !== null}
+            options={pipelineStageOptions}
+            aria-label={`Pipeline stage for ${resume.candidate}`}
+            onChange={(value: CandidatePipelineStage) =>
+              void updatePipelineStage(resume.id!, value)
+            }
+            style={{ minWidth: 120 }}
+          />
+        ) : (
+          <Tag>{pipelineStageOptions.find((option) => option.value === stage)?.label ?? 'New'}</Tag>
+        ),
     },
     {
       title: 'STATUS',
