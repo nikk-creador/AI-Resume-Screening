@@ -20,6 +20,7 @@ import type { ColumnsType } from 'antd/es/table';
 
 import { DownloadOutlined, ReloadOutlined, StopOutlined } from '@ant-design/icons';
 
+import InterviewQuestionPanel from './InterviewQuestionPanel';
 import TeamReviewPanel from './TeamReviewPanel';
 import { downloadApiFile } from '../../../services/api/client';
 import type {
@@ -116,6 +117,7 @@ export default function CandidateResults({
   const [retryDialogOpen, setRetryDialogOpen] = useState(false);
   const [comparisonOpen, setComparisonOpen] = useState(false);
   const [teamReviewOpen, setTeamReviewOpen] = useState(false);
+  const [interviewQuestionsOpen, setInterviewQuestionsOpen] = useState(false);
   const [comparisonKeys, setComparisonKeys] = useState<string[]>([]);
   const [reviewTarget, setReviewTarget] = useState<ResumeRow | null>(null);
   const [reviewScore, setReviewScore] = useState<number | null>(null);
@@ -653,6 +655,11 @@ export default function CandidateResults({
           {isSaved && resumes.some((resume) => resume.id) && (
             <Button onClick={() => setTeamReviewOpen(true)}>Team reviews</Button>
           )}
+          {isSaved && completedCount > 0 && (
+            <Button onClick={() => setInterviewQuestionsOpen(true)}>
+              Draft interview questions
+            </Button>
+          )}
           {canEdit && isSaved && resumes.length > 0 && (
             <Button
               icon={<ReloadOutlined />}
@@ -1004,6 +1011,11 @@ export default function CandidateResults({
         companyId={companyId}
         currentUserId={currentUserId}
         canAssign={canEdit}
+        resumes={resumes}
+      />
+      <InterviewQuestionPanel
+        open={interviewQuestionsOpen}
+        onClose={() => setInterviewQuestionsOpen(false)}
         resumes={resumes}
       />
     </section>

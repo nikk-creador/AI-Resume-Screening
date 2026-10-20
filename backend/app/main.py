@@ -2264,6 +2264,121 @@ def update_candidate_pipeline_stage(
     return {"resume_id": resume_id, "pipeline_stage": resume.pipeline_stage}
 
 
+@app.get("/api/resumes/{resume_id}/interview-questions", tags=["candidate interview"])
+def suggest_candidate_interview_questions(
+    resume_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_company_user),
+):
+    require_company_permission(user, "can_view")
+    evaluation = db.scalar(
+        select(ResumeEvaluation)
+        .join(Resume)
+        .join(Screening)
+        .where(Resume.id == resume_id, screening_company_scope(user))
+    )
+    if evaluation is None:
+        raise HTTPException(status_code=404, detail="Candidate evaluation not found.")
+    if evaluation.status != "completed":
+        raise HTTPException(
+            status_code=409,
+            detail="Wait for the candidate evaluation to complete before drafting interview questions.",
+        )
+
+    resume = evaluation.resume
+    screening = resume.screening
+    assessments = evaluation.assessments or []
+    assessments_by_id = {item.get("criterion_id"): item for item in assessments}
+    criteria: list[dict] = []
+    seen_ids: set[str] = set()
+    for requirement in screening.job_requirements or []:
+        criterion_id = requirement.get("id", "")
+        if not criterion_id or criterion_id in seen_ids:
+            continue
+        seen_ids.add(criterion_id)
+        assessment = assessments_by_id.get(criterion_id, {})
+        criteria.append(
+            {
+                "id": criterion_id,
+                "name": requirement.get("text", "Role requirement"),
+                "required": requirement.get("requirement_class") == "must_have",
+                "priority": requirement.get("priority", 3),
+                "score": assessment.get("score"),
+                "status": assessment.get("status", "not_assessed"),
+                "evidence": assessment.get("evidence") or [],
+            }
+        )
+    for criterion in screening.rubric.criteria if screening.rubric else []:
+        criterion_id = criterion.get("id", "")
+        if not criterion_id or criterion_id in seen_ids:
+            continue
+        seen_ids.add(criterion_id)
+        assessment = assessments_by_id.get(criterion_id, {})
+        criteria.append(
+            {
+                "id": criterion_id,
+                "name": criterion.get("name", "Preferred qualification"),
+                "required": False,
+                "priority": criterion.get("weight", 3),
+                "score": assessment.get("score"),
+                "status": assessment.get("status", "not_assessed"),
+                "evidence": assessment.get("evidence") or [],
+            }
+        )
+    for assessment in assessments:
+        criterion_id = assessment.get("criterion_id", "")
+        if not criterion_id or criterion_id in seen_ids:
+            continue
+        seen_ids.add(criterion_id)
+        criteria.append(
+            {
+                "id": criterion_id,
+                "name": assessment.get("name", "Screening criterion"),
+                "required": bool(assessment.get("required")),
+                "priority": assessment.get("priority", 3),
+                "score": assessment.get("score"),
+                "status": assessment.get("status", "not_assessed"),
+                "evidence": assessment.get("evidence") or [],
+            }
+        )
+
+    criteria.sort(
+        key=lambda item: (
+            not item["required"],
+            -int(item["priority"] or 3),
+            int(item["score"] if item["score"] is not None else -1),
+        )
+    )
+    questions = []
+    for criterion in criteria[:8]:
+        name = str(criterion["name"]).strip()
+        evidence = [str(quote) for quote in criterion["evidence"] if str(quote).strip()]
+        question = (
+            f"Your resume includes experience related to {name}. What was your specific contribution, "
+            "and what outcome did the work produce?"
+            if evidence
+            else f"This role calls for {name}. What relevant example or experience can you share? "
+            "If you have not had that experience, how would you approach it?"
+        )
+        questions.append(
+            {
+                "criterion_id": criterion["id"],
+                "criterion": name,
+                "criterion_type": "Must-have" if criterion["required"] else "Nice-to-have",
+                "score": criterion["score"],
+                "status": criterion["status"],
+                "question": question,
+                "grounding": (
+                    "Resume evidence"
+                    if evidence
+                    else "Role requirement; no matching resume excerpt was recorded."
+                ),
+                "evidence": evidence,
+            }
+        )
+    return {"resume_id": resume_id, "questions": questions}
+
+
 @app.get("/api/companies/{company_id}/reviewers", tags=["candidate reviews"])
 def list_company_reviewers(
     company_id: str,

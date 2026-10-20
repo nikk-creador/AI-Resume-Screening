@@ -873,6 +873,14 @@ section.section-card.results-card {
   margin: 3px 0 0;
   white-space: pre-wrap;
 }
+.interview-question-evidence {
+  display: grid;
+  gap: 5px;
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-left: 3px solid var(--color-border);
+  background: var(--color-surface);
+}
 .candidate-evidence ul {
   margin: 5px 0 0;
   padding-left: 18px;
