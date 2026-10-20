@@ -47,7 +47,8 @@ export default function ResumeUploader({
       </Dragger>
       <div className="privacy-note">
         <span className="privacy-dot" /> Files are sent to the workspace when you save this
-        screening.
+        screening. Each file shows its parsing and evaluation status and can be retried on its own
+        if it fails.
       </div>
     </Card>
   );

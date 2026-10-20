@@ -77,6 +77,7 @@ interface CandidateResultsProps {
   retryingMode: RetryMode | null;
   stopping: boolean;
   onRetry: (mode: RetryMode) => void;
+  onRetryOne: (resumeId: string) => Promise<void>;
   onStop: () => void;
   onReview: (resumeId: string, score: number, note: string) => Promise<void>;
   onPipelineStageChange: (resumeId: string, stage: CandidatePipelineStage) => Promise<void>;
@@ -107,6 +108,7 @@ export default function CandidateResults({
   retryingMode,
   stopping,
   onRetry,
+  onRetryOne,
   onStop,
   onReview,
   onPipelineStageChange,
@@ -119,6 +121,7 @@ export default function CandidateResults({
   const [reviewScore, setReviewScore] = useState<number | null>(null);
   const [reviewNote, setReviewNote] = useState('');
   const [savingReview, setSavingReview] = useState(false);
+  const [retryingResumeId, setRetryingResumeId] = useState<string | null>(null);
   const [updatingPipelineStageId, setUpdatingPipelineStageId] = useState<string | null>(null);
   const [messageApi, contextHolder] = message.useMessage();
   const filteredResumes = useMemo(() => {
@@ -205,6 +208,17 @@ export default function CandidateResults({
       messageApi.error(getErrorMessage(error, 'Could not update the candidate stage.'));
     } finally {
       setUpdatingPipelineStageId(null);
+    }
+  };
+  const retryOne = async (resumeId: string) => {
+    setRetryingResumeId(resumeId);
+    try {
+      await onRetryOne(resumeId);
+      messageApi.success('Candidate queued for parsing and evaluation.');
+    } catch (error: unknown) {
+      messageApi.error(getErrorMessage(error, 'Could not retry this candidate.'));
+    } finally {
+      setRetryingResumeId(null);
     }
   };
   const exportScorecard = () => {
@@ -526,19 +540,19 @@ export default function CandidateResults({
     {
       title: 'STATUS',
       key: 'status',
-      width: 135,
+      width: 175,
       render: (_, resume) => (
         <Tag className="status-tag">
           {resume.evaluation?.status === 'completed'
             ? 'Evaluated'
             : resume.evaluation?.status === 'failed'
-              ? 'Needs review'
+              ? 'Parsing/evaluation failed'
               : resume.evaluation?.status === 'stopped'
                 ? 'Stopped'
                 : resume.evaluation?.status === 'processing'
-                  ? 'Processing'
+                  ? 'Parsing and evaluating'
                   : resume.evaluation?.status === 'queued'
-                    ? 'Queued'
+                    ? 'Queued for parsing'
                     : resume.id
                       ? 'Stored'
                       : 'Ready to upload'}
@@ -552,6 +566,19 @@ export default function CandidateResults({
       align: 'right',
       render: (_, resume) => (
         <div className="row-actions">
+          {canEdit &&
+            resume.id &&
+            (resume.evaluation?.status === 'failed' || resume.evaluation?.status === 'stopped') && (
+              <Button
+                size="small"
+                icon={<ReloadOutlined />}
+                loading={retryingResumeId === resume.id}
+                disabled={retryingResumeId !== null || retryingMode !== null}
+                onClick={() => void retryOne(resume.id!)}
+              >
+                Retry file
+              </Button>
+            )}
           {resume.id && canDownload && (
             <Button
               type="link"

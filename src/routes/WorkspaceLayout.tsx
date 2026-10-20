@@ -754,6 +754,12 @@ export default function WorkspaceLayout({
                 retryingMode={retryingMode}
                 stopping={stopping}
                 onRetry={retryScreening}
+                onRetryOne={async (resumeId) => {
+                  if (!screeningId) return;
+                  await screeningActions.retryResume({ screeningId, resumeId });
+                  const saved = normalizeScreening(await fetchScreening(screeningId));
+                  updateResumes(saved.resumes);
+                }}
                 onStop={stopCurrentScreening}
                 onPipelineStageChange={async (resumeId, stage) => {
                   if (!screeningId) return;

@@ -112,6 +112,10 @@ export async function retryScreening(
   );
 }
 
+export function retryResume(resumeId: string): Promise<{ resume_id: string; status: 'queued' }> {
+  return request(`/api/resumes/${encodeURIComponent(resumeId)}/retry`, { method: 'POST' });
+}
+
 export async function stopScreening(screeningId: string): Promise<{ stopped_count: number }> {
   return request<{ stopped_count: number }>(
     `/api/screenings/${encodeURIComponent(screeningId)}/stop`,

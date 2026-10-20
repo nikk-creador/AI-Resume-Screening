@@ -8,6 +8,7 @@ import {
   listScreenings,
   loadScreening,
   retryScreening,
+  retryResume,
   reviewResumeScore,
   stopScreening,
   suggestScreeningCriteria,
@@ -154,6 +155,10 @@ export function useScreeningActions() {
       retryScreening(screeningId, mode),
     onSuccess: (_result, input) => invalidateScreening(input.screeningId),
   });
+  const retryResumeMutation = useMutation({
+    mutationFn: ({ resumeId }: { screeningId: string; resumeId: string }) => retryResume(resumeId),
+    onSuccess: (_result, input) => invalidateScreening(input.screeningId),
+  });
   const stopMutation = useMutation({
     mutationFn: stopScreening,
     onSuccess: (_result, screeningId) => invalidateScreening(screeningId),
@@ -209,6 +214,7 @@ export function useScreeningActions() {
     deleteResumes: deleteResumesMutation.mutateAsync,
     deleteScreening: deleteScreeningMutation.mutateAsync,
     retry: retryMutation.mutateAsync,
+    retryResume: retryResumeMutation.mutateAsync,
     stop: stopMutation.mutateAsync,
     review: reviewMutation.mutateAsync,
     updatePipelineStage: pipelineStageMutation.mutateAsync,

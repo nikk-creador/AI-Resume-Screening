@@ -1746,6 +1746,61 @@ def stop_screening(
     return {"stopped_count": stopped.rowcount or 0}
 
 
+@app.post("/api/resumes/{resume_id}/retry", tags=["resumes"])
+def retry_resume(
+    resume_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_company_user),
+):
+    require_company_permission(user, "can_edit")
+    evaluation = db.scalar(
+        select(ResumeEvaluation)
+        .join(Resume)
+        .join(Screening)
+        .where(Resume.id == resume_id, screening_company_scope(user))
+    )
+    if evaluation is None:
+        raise HTTPException(status_code=404, detail="Candidate evaluation not found.")
+    if evaluation.status not in {"failed", "stopped"}:
+        raise HTTPException(
+            status_code=409,
+            detail="Only failed or stopped candidates can be retried individually.",
+        )
+    now = datetime.now(timezone.utc)
+    evaluation.status = "queued"
+    evaluation.score = None
+    evaluation.job_match_score = None
+    evaluation.preferred_score = None
+    evaluation.bonus_points = None
+    evaluation.required_checks_passed = None
+    evaluation.required_checks = None
+    evaluation.job_evidence = None
+    evaluation.explanation = None
+    evaluation.assessments = None
+    evaluation.matching_details = None
+    evaluation.reviewer_override_score = None
+    evaluation.reviewer_override_note = None
+    evaluation.reviewer_id = None
+    evaluation.reviewer_updated_at = None
+    evaluation.error_message = None
+    evaluation.attempts = 0
+    evaluation.available_at = None
+    evaluation.updated_at = now
+    company_id = getattr(user, "active_company_id", None)
+    company = db.get(Company, company_id) if company_id else None
+    if company is not None:
+        write_audit_log(
+            db,
+            user=user,
+            company=company,
+            action="candidate.retry_requested",
+            resource_type="resume",
+            resource_id=resume_id,
+        )
+    db.commit()
+    return {"resume_id": resume_id, "status": "queued"}
+
+
 @app.post("/api/screenings/suggest-criteria", tags=["screenings"])
 async def suggest_screening_criteria(
     job_description_text: str = Form(default=""),
