@@ -353,12 +353,12 @@ def extract_image_text(content: bytes, extension: str) -> str:
 
 def extract_pdf_text(content: bytes) -> str:
     try:
-        import fitz
+        import pymupdf
     except ImportError:
         from pypdf import PdfReader
 
         return "\n".join(page.extract_text() or "" for page in PdfReader(BytesIO(content)).pages)
-    document = fitz.open(stream=content, filetype="pdf")
+    document = pymupdf.open(stream=content, filetype="pdf")
     parts = []
     ocr_pages = 0
     for page in document:
@@ -367,7 +367,9 @@ def extract_pdf_text(content: bytes) -> str:
             ocr_pages += 1
             try:
                 from PIL import Image
-                pixmap = page.get_pixmap(matrix=fitz.Matrix(300 / 72, 300 / 72), alpha=False)
+                pixmap = page.get_pixmap(
+                    matrix=pymupdf.Matrix(300 / 72, 300 / 72), alpha=False
+                )
                 with Image.open(BytesIO(pixmap.tobytes("png"))) as rendered_page:
                     page_text = _ocr_image(rendered_page)
             except (ImportError, OSError, RuntimeError, ValueError) as error:
