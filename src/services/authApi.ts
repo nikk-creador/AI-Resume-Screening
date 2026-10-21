@@ -102,6 +102,6 @@ export async function signOut(): Promise<void> {
   await apiRequest<null>(
     '/api/auth/logout',
     { method: 'POST' },
-    { timeoutMs: API_TIMEOUT_MS, notifyUnauthorized: false },
+    { timeoutMs: API_TIMEOUT_MS },
   );
 }

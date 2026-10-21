@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 
 import {
   useCurrentUser,
@@ -10,11 +11,16 @@ import {
   useSignOut,
   useVerifyEmail,
 } from './hooks/useAuth';
+import { queryClient } from './lib/queryClient';
 import AppRouter from './routes/AppRouter';
+import { routes } from './routes/paths';
+import { queryKeys } from './services/api/queryKeys';
 import type { AuthActionResponse } from './services/authApi';
 import { getErrorMessage } from './utils/errors';
 
 export default function App() {
+  const location = useLocation();
+  const navigate = useNavigate();
   const currentUser = useCurrentUser();
   const signInMutation = useSignIn();
   const googleSignInMutation = useGoogleSignIn();
@@ -24,6 +30,22 @@ export default function App() {
   const requestPasswordResetMutation = useRequestPasswordReset();
   const resetPasswordMutation = useResetPassword();
   const [authError, setAuthError] = useState('');
+
+  useEffect(() => {
+    const handleUnauthorized = () => {
+      queryClient.setQueryData(queryKeys.auth.currentUser, null);
+      queryClient.removeQueries({ queryKey: queryKeys.screenings.root });
+      queryClient.removeQueries({ queryKey: queryKeys.organization.root });
+      queryClient.removeQueries({ queryKey: queryKeys.invitations.root });
+      setAuthError('Your session has expired. Sign in again.');
+      if (location.pathname !== routes.signIn) {
+        navigate(routes.signIn, { replace: true, state: { from: location } });
+      }
+    };
+
+    window.addEventListener('recruitai:unauthorized', handleUnauthorized);
+    return () => window.removeEventListener('recruitai:unauthorized', handleUnauthorized);
+  }, [location, navigate]);
 
   const runAuthAction = async <T,>(action: () => Promise<T>, fallback: string): Promise<T> => {
     setAuthError('');

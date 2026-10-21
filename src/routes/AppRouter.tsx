@@ -1,9 +1,9 @@
 import { lazy, Suspense } from 'react';
-import { Navigate, Route, Routes } from 'react-router-dom';
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 
-import { routes } from './paths';
-import RequireAuth from './RequireAuth';
+import { publicAuthPaths, routes } from './paths';
 import PublicHomePage from './PublicHomePage';
+import RequireAuth from './RequireAuth';
 import type { AuthMode } from '../features/auth/components/SignIn';
 import SignIn from '../features/auth/components/SignIn';
 import AcceptInvitationPage from '../features/organization/components/AcceptInvitationPage';
@@ -40,6 +40,24 @@ export default function AppRouter({
   onRequestPasswordReset,
   onResetPassword,
 }: AppRouterProps) {
+  const location = useLocation();
+  const requestedLocation = (
+    location.state as {
+      from?: { pathname?: string; search?: string; hash?: string };
+    } | null
+  )?.from;
+  const requestedPath = requestedLocation?.pathname;
+  const returnTo =
+    requestedPath?.startsWith('/') &&
+    !requestedPath.startsWith('//') &&
+    !publicAuthPaths.includes(requestedPath)
+      ? {
+          pathname: requestedPath,
+          search: requestedLocation?.search ?? '',
+          hash: requestedLocation?.hash ?? '',
+        }
+      : routes.home;
+
   if (checkingSession) {
     return (
       <main className="auth-loading" aria-busy="true" aria-label="Checking sign-in session">
@@ -50,7 +68,7 @@ export default function AppRouter({
 
   const authPage = (mode: AuthMode) =>
     user ? (
-      <Navigate to={routes.home} replace />
+      <Navigate to={returnTo} replace />
     ) : (
       <SignIn
         mode={mode}
@@ -93,7 +111,12 @@ export default function AppRouter({
           />
         )}
       </Route>
-      {!user && <Route path="*" element={<Navigate to={routes.signIn} replace />} />}
+      {!user && (
+        <Route
+          path="*"
+          element={<Navigate to={routes.signIn} replace state={{ from: location }} />}
+        />
+      )}
     </Routes>
   );
 }
