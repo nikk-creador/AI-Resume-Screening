@@ -24,6 +24,8 @@ export const queryKeys = {
       [...queryKeys.organization.root, 'invitations', companyId] as const,
     auditLog: (companyId: string) =>
       [...queryKeys.organization.root, 'audit-log', companyId] as const,
+    retentionPolicy: (companyId: string) =>
+      [...queryKeys.organization.root, 'retention-policy', companyId] as const,
     companies: (organizationId: string) =>
       [...queryKeys.organization.root, 'companies', organizationId] as const,
   },

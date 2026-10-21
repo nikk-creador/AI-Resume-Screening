@@ -56,6 +56,7 @@ function localResume(file: File): ResumeRow {
     duplicateOfResumeId: null,
     duplicateOfFilename: null,
     duplicateReason: null,
+    archivedAt: null,
     evaluation: null,
   };
 }
@@ -64,6 +65,7 @@ function normalizeScreening(data: ScreeningApiRecord): ScreeningState {
   return {
     id: data.id,
     name: data.name,
+    archivedAt: data.archived_at,
     resumes: data.resumes.map((resume) => ({
       key: resume.id,
       id: resume.id,
@@ -77,6 +79,7 @@ function normalizeScreening(data: ScreeningApiRecord): ScreeningState {
       duplicateOfResumeId: resume.duplicate_of_resume_id,
       duplicateOfFilename: resume.duplicate_of_filename,
       duplicateReason: resume.duplicate_reason,
+      archivedAt: resume.archived_at,
       evaluation: resume.evaluation,
     })),
     jobFile: data.job_description_filename
@@ -117,6 +120,7 @@ export default function WorkspaceLayout({
     criteria,
     jobRequirements,
     scoringConfig,
+    archivedAt,
   } = draft;
   const resumesRef = useRef<ResumeRow[]>(resumes);
   const location = useLocation();
@@ -674,6 +678,16 @@ export default function WorkspaceLayout({
                 />
               )}
 
+              {archivedAt && (
+                <Alert
+                  className="service-notice"
+                  type="info"
+                  showIcon
+                  title="This screening is archived"
+                  description={`Archived on ${new Date(archivedAt).toLocaleString()}. The screening and its candidate records are retained for review.`}
+                />
+              )}
+
               <ScreeningSummary
                 resumeCount={resumes.length}
                 hasJobDescription={Boolean(jobFile || jobText.trim())}
@@ -732,7 +746,8 @@ export default function WorkspaceLayout({
                 screeningName={screeningName}
                 companyId={activeCompany.id}
                 currentUserId={user.id}
-                canEdit={activeCompany.permissions.edit}
+                canReviewTeam={activeCompany.permissions.edit && !archivedAt}
+                canEdit={activeCompany.permissions.edit && !archivedAt}
                 canDownload={activeCompany.permissions.download}
                 query={query}
                 page={page}
@@ -821,7 +836,7 @@ export default function WorkspaceLayout({
           element={
             <AIServicePanel
               key={screeningId ?? 'none'}
-              canEdit={activeCompany.permissions.edit}
+              canEdit={activeCompany.permissions.edit && !archivedAt}
               screeningId={screeningId}
               screeningName={screeningName}
               resumes={resumes}

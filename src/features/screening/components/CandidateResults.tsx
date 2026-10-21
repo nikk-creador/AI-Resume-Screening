@@ -59,6 +59,7 @@ interface CandidateResultsProps {
   screeningName: string;
   companyId: string;
   currentUserId: string;
+  canReviewTeam: boolean;
   canEdit: boolean;
   canDownload: boolean;
   query: string;
@@ -90,6 +91,7 @@ export default function CandidateResults({
   screeningName,
   companyId,
   currentUserId,
+  canReviewTeam,
   canEdit,
   canDownload,
   query,
@@ -362,6 +364,7 @@ export default function CandidateResults({
                 Possible duplicate
               </Tag>
             )}
+            {resume.archivedAt && <Tag color="blue">Archived</Tag>}
           </span>
         </div>
       ),
@@ -531,7 +534,7 @@ export default function CandidateResults({
       key: 'pipelineStage',
       width: 145,
       render: (stage: CandidatePipelineStage, resume: CandidateRow) =>
-        canEdit && resume.id ? (
+        canEdit && resume.id && !resume.archivedAt ? (
           <Select
             size="small"
             value={stage}
@@ -579,6 +582,7 @@ export default function CandidateResults({
         <div className="row-actions">
           {canEdit &&
             resume.id &&
+            !resume.archivedAt &&
             (resume.evaluation?.status === 'failed' || resume.evaluation?.status === 'stopped') && (
               <Button
                 size="small"
@@ -601,18 +605,21 @@ export default function CandidateResults({
               Download
             </Button>
           )}
-          {canEdit && resume.id && resume.evaluation?.status === 'completed' && (
-            <Button
-              size="small"
-              onClick={() => {
-                setReviewTarget(resume);
-                setReviewScore(resume.evaluation?.score ?? null);
-                setReviewNote(resume.evaluation?.reviewer_override_note ?? '');
-              }}
-            >
-              Review score
-            </Button>
-          )}
+          {canEdit &&
+            resume.id &&
+            !resume.archivedAt &&
+            resume.evaluation?.status === 'completed' && (
+              <Button
+                size="small"
+                onClick={() => {
+                  setReviewTarget(resume);
+                  setReviewScore(resume.evaluation?.score ?? null);
+                  setReviewNote(resume.evaluation?.reviewer_override_note ?? '');
+                }}
+              >
+                Review score
+              </Button>
+            )}
           {canEdit && (
             <Button
               type="text"
@@ -1011,6 +1018,7 @@ export default function CandidateResults({
         companyId={companyId}
         currentUserId={currentUserId}
         canAssign={canEdit}
+        canSubmitReview={canReviewTeam}
         resumes={resumes}
       />
       <InterviewQuestionPanel

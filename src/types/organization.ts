@@ -43,6 +43,16 @@ export interface CompanyAuditEvent {
   created_at: string;
 }
 
+export interface CompanyRetentionPolicy {
+  company_id: string;
+  enabled: boolean;
+  resume_after_days: number;
+  resume_action: 'archive' | 'delete';
+  screening_after_days: number;
+  screening_action: 'archive' | 'delete';
+  updated_at: string | null;
+}
+
 export interface OrganizationCompany {
   id: string;
   name: string;

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Alert, Button, Empty, Input, Modal, Popconfirm, Table, Typography } from 'antd';
+import { Alert, Button, Empty, Input, Modal, Popconfirm, Table, Tag, Typography } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 
 import { DeleteOutlined, EditOutlined } from '@ant-design/icons';
@@ -108,6 +108,7 @@ export default function ScreeningsList({
       render: (_, screening) => (
         <div className="screening-list-job">
           <Text strong>{screening.name}</Text>
+          {screening.archived_at && <Tag color="blue">Archived</Tag>}
         </div>
       ),
     },
@@ -164,17 +165,19 @@ export default function ScreeningsList({
       render: (_, screening) =>
         canEdit ? (
           <div className="screening-row-actions">
-            <Button
-              type="text"
-              icon={<EditOutlined />}
-              title="Edit screening"
-              aria-label="Edit screening"
-              loading={loadingEditId === screening.id}
-              onClick={(event) => {
-                event.stopPropagation();
-                void openEditor(screening.id);
-              }}
-            />
+            {!screening.archived_at && (
+              <Button
+                type="text"
+                icon={<EditOutlined />}
+                title="Edit screening"
+                aria-label="Edit screening"
+                loading={loadingEditId === screening.id}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  void openEditor(screening.id);
+                }}
+              />
+            )}
             <Popconfirm
               title="Delete this screening?"
               description="Uploaded resumes, results, and the job description file will be deleted."

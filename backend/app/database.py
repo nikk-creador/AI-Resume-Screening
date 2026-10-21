@@ -31,6 +31,7 @@ def migrate_screening_schema(bind=engine) -> None:
             "company_id": String(36),
             "job_requirements": JSON(),
             "scoring_config": JSON(),
+            "archived_at": DateTime(timezone=True),
         },
         "resume_evaluations": {
             "available_at": DateTime(timezone=True),
@@ -54,6 +55,7 @@ def migrate_screening_schema(bind=engine) -> None:
             "duplicate_of_resume_id": String(36),
             "duplicate_of_filename": String(255),
             "duplicate_reason": String(80),
+            "archived_at": DateTime(timezone=True),
         },
         "users": {"is_verified": Boolean(), "default_company_id": String(36)},
         "organizations": {"is_active": Boolean(), "created_at": DateTime(timezone=True)},

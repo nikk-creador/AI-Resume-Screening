@@ -16,6 +16,7 @@ export interface ScreeningDraftState {
   criteria: EvaluationCriterion[];
   jobRequirements: JobRequirement[];
   scoringConfig: ScreeningState['scoringConfig'];
+  archivedAt: ScreeningState['archivedAt'];
 }
 
 export type ScreeningDraftAction =
@@ -42,6 +43,7 @@ export function createScreeningDraft(screeningId: string | null): ScreeningDraft
     criteria: [],
     jobRequirements: [],
     scoringConfig: null,
+    archivedAt: null,
   };
 }
 
@@ -61,6 +63,7 @@ export function screeningDraftReducer(
         criteria: action.screening.criteria,
         jobRequirements: action.screening.jobRequirements,
         scoringConfig: action.screening.scoringConfig,
+        archivedAt: action.screening.archivedAt,
       };
     case 'initialize':
       return action.value === state.screeningId

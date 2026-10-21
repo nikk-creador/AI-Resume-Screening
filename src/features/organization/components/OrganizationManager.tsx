@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Alert,
   Button,
@@ -7,6 +7,7 @@ import {
   Drawer,
   Form,
   Input,
+  InputNumber,
   message,
   Popconfirm,
   Select,
@@ -29,11 +30,13 @@ import {
   listCompanyInvitations,
   listCompanyMembers,
   listOrganizationCompanies,
+  getCompanyRetentionPolicy,
   resendCompanyInvitation,
   restoreCompany,
   revokeCompanyInvitation,
   revokeCompanyMember,
   updateCompanyMember,
+  updateCompanyRetentionPolicy,
 } from '../../../services/organizationApi';
 import type {
   CompanyAccess,
@@ -41,6 +44,7 @@ import type {
   CompanyInvitation,
   CompanyMember,
   CompanyPermissions,
+  CompanyRetentionPolicy,
 } from '../../../types/organization';
 import { getErrorMessage } from '../../../utils/errors';
 
@@ -72,6 +76,17 @@ export default function OrganizationManager({
   const [inviteForm] = Form.useForm<CompanyPermissions & { email: string }>();
   const [companyForm] = Form.useForm<{ name: string; parent_company_id?: string }>();
   const [organizationForm] = Form.useForm<{ name: string; initial_company_name: string }>();
+  const [retentionForm] =
+    Form.useForm<
+      Pick<
+        CompanyRetentionPolicy,
+        | 'enabled'
+        | 'resume_after_days'
+        | 'resume_action'
+        | 'screening_after_days'
+        | 'screening_action'
+      >
+    >();
   const [inviteLink, setInviteLink] = useState<{ companyId: string; url: string } | null>(null);
   const [messageApi, contextHolder] = message.useMessage();
   const queryClient = useQueryClient();
@@ -91,6 +106,22 @@ export default function OrganizationManager({
     queryFn: () => listCompanyAuditLog(activeCompany.id),
     enabled: open && canManageMembers,
   });
+  const retentionQuery = useQuery({
+    queryKey: queryKeys.organization.retentionPolicy(activeCompany.id),
+    queryFn: () => getCompanyRetentionPolicy(activeCompany.id),
+    enabled: open && canManageMembers,
+  });
+  useEffect(() => {
+    if (retentionQuery.data) {
+      retentionForm.setFieldsValue({
+        enabled: retentionQuery.data.enabled,
+        resume_after_days: retentionQuery.data.resume_after_days,
+        resume_action: retentionQuery.data.resume_action,
+        screening_after_days: retentionQuery.data.screening_after_days,
+        screening_action: retentionQuery.data.screening_action,
+      });
+    }
+  }, [retentionForm, retentionQuery.data]);
   const organizationCompaniesQuery = useQuery({
     queryKey: queryKeys.organization.companies(activeCompany.organization_id),
     queryFn: () => listOrganizationCompanies(activeCompany.organization_id),
@@ -174,6 +205,23 @@ export default function OrganizationManager({
     }) => updateCompanyMember(activeCompany.id, userId, { [permission]: enabled }),
     onSuccess: refreshAccess,
     onError: (error) => messageApi.error(getErrorMessage(error, 'Could not update access.')),
+  });
+  const retentionMutation = useMutation({
+    mutationFn: (values: Parameters<typeof updateCompanyRetentionPolicy>[1]) =>
+      updateCompanyRetentionPolicy(activeCompany.id, values),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.organization.retentionPolicy(activeCompany.id),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.organization.auditLog(activeCompany.id),
+        }),
+      ]);
+      messageApi.success('Data retention policy saved.');
+    },
+    onError: (error) =>
+      messageApi.error(getErrorMessage(error, 'Could not save the retention policy.')),
   });
   const revokeMemberMutation = useMutation({
     mutationFn: (userId: string) => revokeCompanyMember(activeCompany.id, userId),
@@ -498,6 +546,87 @@ export default function OrganizationManager({
               },
             ]}
           />
+          <Divider />
+          <Text strong>Data retention</Text>
+          <Text type="secondary">
+            Rules use the resume upload date and screening creation date. Archive keeps records
+            available for review; delete permanently removes their files and records.
+          </Text>
+          {retentionQuery.error && (
+            <Alert
+              style={{ marginTop: 12 }}
+              type="error"
+              showIcon
+              message={getErrorMessage(
+                retentionQuery.error,
+                'Could not load the retention policy.',
+              )}
+              action={<Button onClick={() => void retentionQuery.refetch()}>Retry</Button>}
+            />
+          )}
+          <Form
+            form={retentionForm}
+            layout="vertical"
+            initialValues={{
+              enabled: false,
+              resume_after_days: 365,
+              resume_action: 'archive',
+              screening_after_days: 730,
+              screening_action: 'archive',
+            }}
+            onFinish={(values) => retentionMutation.mutate(values)}
+            style={{ marginTop: 12 }}
+          >
+            <Form.Item name="enabled" valuePropName="checked">
+              <Switch checkedChildren="Enabled" unCheckedChildren="Disabled" />
+            </Form.Item>
+            <Space wrap align="start">
+              <Form.Item
+                label="Resumes older than (days)"
+                name="resume_after_days"
+                rules={[{ required: true, type: 'number', min: 1, max: 3650 }]}
+              >
+                <InputNumber min={1} max={3650} precision={0} />
+              </Form.Item>
+              <Form.Item label="Resume action" name="resume_action" rules={[{ required: true }]}>
+                <Select
+                  style={{ width: 150 }}
+                  options={[
+                    { label: 'Archive', value: 'archive' },
+                    { label: 'Delete', value: 'delete' },
+                  ]}
+                />
+              </Form.Item>
+              <Form.Item
+                label="Screenings older than (days)"
+                name="screening_after_days"
+                rules={[{ required: true, type: 'number', min: 1, max: 3650 }]}
+              >
+                <InputNumber min={1} max={3650} precision={0} />
+              </Form.Item>
+              <Form.Item
+                label="Screening action"
+                name="screening_action"
+                rules={[{ required: true }]}
+              >
+                <Select
+                  style={{ width: 150 }}
+                  options={[
+                    { label: 'Archive', value: 'archive' },
+                    { label: 'Delete', value: 'delete' },
+                  ]}
+                />
+              </Form.Item>
+            </Space>
+            <Button
+              type="primary"
+              htmlType="submit"
+              loading={retentionMutation.isPending}
+              disabled={retentionQuery.isPending || Boolean(retentionQuery.error)}
+            >
+              Save retention policy
+            </Button>
+          </Form>
           <Divider />
           <Text strong>Recent audit history</Text>
           <Text type="secondary">

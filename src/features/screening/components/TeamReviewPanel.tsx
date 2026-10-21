@@ -37,6 +37,7 @@ interface TeamReviewPanelProps {
   companyId: string;
   currentUserId: string;
   canAssign: boolean;
+  canSubmitReview: boolean;
   resumes: ResumeRow[];
 }
 
@@ -47,6 +48,7 @@ export default function TeamReviewPanel({
   companyId,
   currentUserId,
   canAssign,
+  canSubmitReview,
   resumes,
 }: TeamReviewPanelProps) {
   const storedResumes = useMemo(() => resumes.filter((resume) => resume.id), [resumes]);
@@ -69,6 +71,11 @@ export default function TeamReviewPanel({
     enabled: open && canAssign && Boolean(companyId),
   });
   const teamReview = reviewsQuery.data?.find((item) => item.resume_id === selectedResumeId);
+  const selectedResume = storedResumes.find((resume) => resume.id === selectedResumeId);
+  const canEditSelectedResume = Boolean(
+    selectedResume && !selectedResume.archivedAt && canSubmitReview,
+  );
+  const canAssignSelectedResume = canAssign && canEditSelectedResume;
   const activeAssignments = useMemo(
     () => teamReview?.assignments.filter((item) => item.is_active) ?? [],
     [teamReview],
@@ -147,7 +154,7 @@ export default function TeamReviewPanel({
             action={<Button onClick={() => void reviewsQuery.refetch()}>Retry</Button>}
           />
         )}
-        {canAssign && (
+        {canAssignSelectedResume && (
           <Card size="small" title="Assigned reviewers">
             <Space direction="vertical" style={{ width: '100%' }}>
               {reviewersQuery.error && (
@@ -181,7 +188,7 @@ export default function TeamReviewPanel({
             </Space>
           </Card>
         )}
-        {!canAssign && (
+        {!canAssignSelectedResume && (
           <div>
             <Text strong>Assigned reviewers</Text>
             <div className="team-review-assignees">
@@ -220,7 +227,7 @@ export default function TeamReviewPanel({
             <Text type="secondary">No independent reviews have been submitted.</Text>
           )}
         </div>
-        {isAssigned ? (
+        {isAssigned && canEditSelectedResume ? (
           <Card
             size="small"
             title={ownReview ? 'Update your assessment' : 'Submit your assessment'}
@@ -256,7 +263,13 @@ export default function TeamReviewPanel({
           <Alert
             type="info"
             showIcon
-            title="You need an assignment to submit an independent review."
+            title={
+              selectedResume?.archivedAt
+                ? 'Archived candidates are available for review only.'
+                : isAssigned
+                  ? 'Your access does not allow editing this review.'
+                  : 'You need an assignment to submit an independent review.'
+            }
           />
         )}
       </Space>

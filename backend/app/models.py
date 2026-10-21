@@ -19,6 +19,7 @@ class Screening(Base):
     owner_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"), index=True, nullable=True)
     company_id: Mapped[str | None] = mapped_column(ForeignKey("companies.id"), index=True, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     job_description_text: Mapped[str] = mapped_column(Text, default="", nullable=False)
     job_requirements: Mapped[list[dict] | None] = mapped_column(JSON, nullable=True)
     scoring_config: Mapped[dict | None] = mapped_column(JSON, nullable=True)
@@ -45,6 +46,7 @@ class Resume(Base):
     language_code: Mapped[str | None] = mapped_column(String(12), nullable=True)
     structured_profile: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     pipeline_stage: Mapped[str] = mapped_column(String(20), default="new", nullable=False)
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     content_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
     duplicate_of_resume_id: Mapped[str | None] = mapped_column(
         ForeignKey("resumes.id", ondelete="SET NULL"), nullable=True
@@ -171,6 +173,21 @@ class Company(Base):
     name: Mapped[str] = mapped_column(String(160), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+
+class CompanyRetentionPolicy(Base):
+    __tablename__ = "company_retention_policies"
+
+    company_id: Mapped[str] = mapped_column(
+        ForeignKey("companies.id", ondelete="CASCADE"), primary_key=True
+    )
+    enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    resume_after_days: Mapped[int] = mapped_column(Integer, default=365, nullable=False)
+    resume_action: Mapped[str] = mapped_column(String(12), default="archive", nullable=False)
+    screening_after_days: Mapped[int] = mapped_column(Integer, default=730, nullable=False)
+    screening_action: Mapped[str] = mapped_column(String(12), default="archive", nullable=False)
+    updated_by_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
 
 
 class OrganizationMembership(Base):

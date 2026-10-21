@@ -6,8 +6,30 @@ import type {
   CompanyInvitation,
   CompanyMember,
   CompanyPermissions,
+  CompanyRetentionPolicy,
   OrganizationCompany,
 } from '../types/organization';
+
+export type CompanyRetentionPolicyInput = Pick<
+  CompanyRetentionPolicy,
+  'enabled' | 'resume_after_days' | 'resume_action' | 'screening_after_days' | 'screening_action'
+>;
+
+export async function getCompanyRetentionPolicy(
+  companyId: string,
+): Promise<CompanyRetentionPolicy> {
+  return apiRequest(`/api/companies/${encodeURIComponent(companyId)}/retention-policy`);
+}
+
+export async function updateCompanyRetentionPolicy(
+  companyId: string,
+  policy: CompanyRetentionPolicyInput,
+): Promise<CompanyRetentionPolicy> {
+  return apiRequest(`/api/companies/${encodeURIComponent(companyId)}/retention-policy`, {
+    method: 'PUT',
+    body: JSON.stringify(policy),
+  });
+}
 
 export interface OrganizationCreateResult {
   organization_id: string;

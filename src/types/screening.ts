@@ -11,6 +11,7 @@ export interface ResumeRow {
   duplicateOfResumeId: string | null;
   duplicateOfFilename: string | null;
   duplicateReason: string | null;
+  archivedAt: string | null;
   evaluation: ResumeEvaluation | null;
 }
 
@@ -126,6 +127,7 @@ export interface ResumeApiRecord {
   duplicate_of_resume_id: string | null;
   duplicate_of_filename: string | null;
   duplicate_reason: string | null;
+  archived_at: string | null;
   evaluation: ResumeEvaluation | null;
 }
 
@@ -133,6 +135,7 @@ export interface ScreeningApiRecord {
   id: string;
   name: string;
   created_at: string;
+  archived_at: string | null;
   job_description_text: string;
   job_description_filename: string | null;
   criteria: EvaluationCriterion[];
@@ -151,6 +154,7 @@ export interface ScreeningListItem {
   failed_count: number;
   stopped_count: number;
   average_score: number | null;
+  archived_at: string | null;
 }
 
 export interface ScreeningListResponse {
@@ -180,6 +184,7 @@ export interface ScreeningState {
   criteria: EvaluationCriterion[];
   jobRequirements: JobRequirement[];
   scoringConfig: MatchingScoringConfig | null;
+  archivedAt: string | null;
 }
 
 export interface CandidateRow extends ResumeRow {

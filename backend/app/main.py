@@ -20,7 +20,7 @@ from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, ValidationError
-from sqlalchemy import case, func, select, text, update
+from sqlalchemy import case, delete, func, select, text, update
 from sqlalchemy.orm import Session, selectinload
 
 from .auth import (
@@ -57,6 +57,7 @@ from .models import (
     Company,
     CompanyInvitation,
     CompanyMembership,
+    CompanyRetentionPolicy,
     Organization,
     OrganizationMembership,
     Resume,
@@ -76,6 +77,7 @@ from .tenancy import (
     write_audit_log,
 )
 from .worker import run_worker
+from .retention import run_retention_worker
 
 MAX_FILE_SIZE = 10 * 1024 * 1024
 MAX_JOB_DESCRIPTION_CHARS = 10_000
@@ -183,6 +185,14 @@ class UpdatePipelineStageRequest(BaseModel):
     stage: Literal["new", "in_review", "interview", "decision"]
 
 
+class CompanyRetentionPolicyRequest(BaseModel):
+    enabled: bool = False
+    resume_after_days: int = Field(default=365, ge=1, le=3650)
+    resume_action: Literal["archive", "delete"] = "archive"
+    screening_after_days: int = Field(default=730, ge=1, le=3650)
+    screening_action: Literal["archive", "delete"] = "archive"
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     Base.metadata.create_all(bind=engine)
@@ -192,6 +202,7 @@ async def lifespan(_: FastAPI):
     backfill_organization_schema(engine)
     worker_stop = Event()
     worker_thread = None
+    retention_thread = None
     if os.getenv("RUN_EVALUATION_WORKER", "true").strip().lower() not in {"0", "false", "no"}:
         worker_thread = Thread(
             target=run_worker,
@@ -200,12 +211,21 @@ async def lifespan(_: FastAPI):
             daemon=True,
         )
         worker_thread.start()
+    retention_thread = Thread(
+        target=run_retention_worker,
+        kwargs={"stop_event": worker_stop},
+        name="data-retention-worker",
+        daemon=True,
+    )
+    retention_thread.start()
     try:
         yield
     finally:
         worker_stop.set()
         if worker_thread is not None:
             worker_thread.join(timeout=5)
+        if retention_thread is not None:
+            retention_thread.join(timeout=5)
 
 
 app = FastAPI(
@@ -322,6 +342,17 @@ def require_selected_company(user: User, company_id: str) -> None:
         raise HTTPException(status_code=404, detail="Company not found.")
 
 
+def require_active_screening(screening: Screening) -> None:
+    if screening.archived_at is not None:
+        raise HTTPException(status_code=409, detail="This screening is archived and cannot be changed.")
+
+
+def require_active_resume(resume: Resume) -> None:
+    if resume.archived_at is not None:
+        raise HTTPException(status_code=409, detail="This resume is archived and cannot be changed.")
+    require_active_screening(resume.screening)
+
+
 def membership_role(can_view: bool, can_edit: bool, can_download: bool, can_manage_members: bool) -> str:
     if can_view and can_edit and can_download and can_manage_members:
         return "company_admin"
@@ -430,6 +461,7 @@ def screening_payload(screening: Screening) -> dict:
         "id": screening.id,
         "name": screening.name,
         "created_at": iso_utc(screening.created_at),
+        "archived_at": iso_utc(screening.archived_at) if screening.archived_at else None,
         "job_description_text": screening.job_description_text,
         "job_description_filename": screening.job_description_filename,
         "job_requirements": screening.job_requirements,
@@ -444,6 +476,7 @@ def screening_payload(screening: Screening) -> dict:
                 "created_at": iso_utc(resume.created_at),
                 "language_code": resume.language_code,
                 "pipeline_stage": resume.pipeline_stage,
+                "archived_at": iso_utc(resume.archived_at) if resume.archived_at else None,
                 "duplicate_of_resume_id": resume.duplicate_of_resume_id,
                 "duplicate_of_filename": resume.duplicate_of_filename,
                 "duplicate_reason": resume.duplicate_reason,
@@ -1438,6 +1471,76 @@ def list_company_audit_log(
     ]}
 
 
+@app.get("/api/companies/{company_id}/retention-policy", tags=["organizations"])
+def get_company_retention_policy(
+    company_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_company_user),
+) -> dict:
+    require_selected_company(user, company_id)
+    require_company_permission(user, "can_manage_members")
+    policy = db.get(CompanyRetentionPolicy, company_id)
+    return {
+        "company_id": company_id,
+        "enabled": policy.enabled if policy else False,
+        "resume_after_days": policy.resume_after_days if policy else 365,
+        "resume_action": policy.resume_action if policy else "archive",
+        "screening_after_days": policy.screening_after_days if policy else 730,
+        "screening_action": policy.screening_action if policy else "archive",
+        "updated_at": iso_utc(policy.updated_at) if policy else None,
+    }
+
+
+@app.put("/api/companies/{company_id}/retention-policy", tags=["organizations"])
+def update_company_retention_policy(
+    company_id: str,
+    payload: CompanyRetentionPolicyRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_company_user),
+) -> dict:
+    require_selected_company(user, company_id)
+    require_company_permission(user, "can_manage_members")
+    company = db.get(Company, company_id)
+    if company is None:
+        raise HTTPException(status_code=404, detail="Company not found.")
+    policy = db.get(CompanyRetentionPolicy, company_id)
+    if policy is None:
+        policy = CompanyRetentionPolicy(company_id=company_id)
+        db.add(policy)
+    policy.enabled = payload.enabled
+    policy.resume_after_days = payload.resume_after_days
+    policy.resume_action = payload.resume_action
+    policy.screening_after_days = payload.screening_after_days
+    policy.screening_action = payload.screening_action
+    policy.updated_by_id = user.id
+    policy.updated_at = datetime.now(timezone.utc)
+    write_audit_log(
+        db,
+        user=user,
+        company=company,
+        action="retention.policy_updated",
+        resource_type="company",
+        resource_id=company_id,
+        details={
+            "enabled": policy.enabled,
+            "resume_after_days": policy.resume_after_days,
+            "resume_action": policy.resume_action,
+            "screening_after_days": policy.screening_after_days,
+            "screening_action": policy.screening_action,
+        },
+    )
+    db.commit()
+    return {
+        "company_id": company_id,
+        "enabled": policy.enabled,
+        "resume_after_days": policy.resume_after_days,
+        "resume_action": policy.resume_action,
+        "screening_after_days": policy.screening_after_days,
+        "screening_action": policy.screening_action,
+        "updated_at": iso_utc(policy.updated_at),
+    }
+
+
 @app.get("/api/screening-templates", tags=["screening templates"])
 def list_screening_templates(
     db: Session = Depends(get_db),
@@ -1688,6 +1791,7 @@ def list_screenings(
                 "id": screening.id,
                 "name": screening.name,
                 "created_at": iso_utc(screening.created_at),
+                "archived_at": iso_utc(screening.archived_at) if screening.archived_at else None,
                 "resume_count": int(resume_count),
                 "completed_count": int(completed_count),
                 "active_count": int(active_count),
@@ -1709,13 +1813,14 @@ def retry_screening(
 ):
     require_company_permission(user, "can_edit")
     screening = db.scalar(
-        select(Screening.id).where(
+        select(Screening).where(
             Screening.id == screening_id,
             screening_company_scope(user),
         )
     )
     if screening is None:
         raise HTTPException(status_code=404, detail="Screening not found.")
+    require_active_screening(screening)
 
     owned_resume_ids = select(Resume.id).where(Resume.screening_id == screening_id).scalar_subquery()
     conditions = [ResumeEvaluation.resume_id.in_(owned_resume_ids)]
@@ -1770,13 +1875,14 @@ def stop_screening(
 ):
     require_company_permission(user, "can_edit")
     screening = db.scalar(
-        select(Screening.id).where(
+        select(Screening).where(
             Screening.id == screening_id,
             screening_company_scope(user),
         )
     )
     if screening is None:
         raise HTTPException(status_code=404, detail="Screening not found.")
+    require_active_screening(screening)
 
     owned_resume_ids = select(Resume.id).where(Resume.screening_id == screening_id).scalar_subquery()
     stopped = db.execute(
@@ -1823,6 +1929,7 @@ def retry_resume(
     )
     if evaluation is None:
         raise HTTPException(status_code=404, detail="Candidate evaluation not found.")
+    require_active_resume(evaluation.resume)
     if evaluation.status not in {"failed", "stopped"}:
         raise HTTPException(
             status_code=409,
@@ -1914,6 +2021,7 @@ async def upload_screening_resumes(
     )
     if screening is None:
         raise HTTPException(status_code=404, detail="Screening not found.")
+    require_active_screening(screening)
     previous_resume_ids = {resume.id for resume in screening.resumes}
     uploaded_paths: list[Path] = []
     try:
@@ -1980,6 +2088,7 @@ def update_screening_requirements(
     )
     if screening is None:
         raise HTTPException(status_code=404, detail="Screening not found.")
+    require_active_screening(screening)
     requirements = [item.model_dump() for item in payload.requirements]
     requirement_ids = [item["id"] for item in requirements]
     if len(requirement_ids) != len(set(requirement_ids)):
@@ -2048,6 +2157,7 @@ def update_screening(
     )
     if screening is None:
         raise HTTPException(status_code=404, detail="Screening not found.")
+    require_active_screening(screening)
 
     screening_name = payload.name.strip()
     if len(screening_name) < 2:
@@ -2151,6 +2261,12 @@ def delete_screening(
             resource_type="screening", resource_id=screening.id,
             details={"screening_name": screening.name, "resume_count": len(screening.resumes)},
         )
+    resume_ids = [resume.id for resume in screening.resumes]
+    if resume_ids:
+        db.execute(delete(CandidateReview).where(CandidateReview.resume_id.in_(resume_ids)))
+        db.execute(
+            delete(CandidateAssignment).where(CandidateAssignment.resume_id.in_(resume_ids))
+        )
     db.delete(screening)
     db.commit()
     for file_path in stored_files:
@@ -2202,6 +2318,7 @@ def review_resume_score(
     )
     if evaluation is None:
         raise HTTPException(status_code=404, detail="Candidate evaluation not found.")
+    require_active_resume(evaluation.resume)
     if evaluation.status != "completed":
         raise HTTPException(status_code=409, detail="Wait for evaluation to complete before reviewing its score.")
     previous_override_score = evaluation.reviewer_override_score
@@ -2246,6 +2363,7 @@ def update_candidate_pipeline_stage(
     )
     if resume is None:
         raise HTTPException(status_code=404, detail="Resume not found.")
+    require_active_resume(resume)
     previous_stage = resume.pipeline_stage
     resume.pipeline_stage = payload.stage
     company_id = getattr(user, "active_company_id", None)
@@ -2484,6 +2602,7 @@ def update_candidate_assignments(
     )
     if resume is None:
         raise HTTPException(status_code=404, detail="Resume not found.")
+    require_active_resume(resume)
     company_id = getattr(user, "active_company_id", None)
     reviewer_ids = list(dict.fromkeys(payload.reviewer_ids))
     valid_reviewer_ids = set(
@@ -2556,6 +2675,7 @@ def save_candidate_team_review(
     )
     if resume is None:
         raise HTTPException(status_code=404, detail="Resume not found.")
+    require_active_resume(resume)
     assignment = db.scalar(
         select(CandidateAssignment).where(
             CandidateAssignment.resume_id == resume_id,
@@ -2661,6 +2781,12 @@ def bulk_delete_resumes(
     )
     for record in records:
         db.delete(record)
+    if records:
+        record_ids = [record.id for record in records]
+        db.execute(delete(CandidateReview).where(CandidateReview.resume_id.in_(record_ids)))
+        db.execute(
+            delete(CandidateAssignment).where(CandidateAssignment.resume_id.in_(record_ids))
+        )
     active_company_id = getattr(user, "active_company_id", None)
     company = db.get(Company, active_company_id) if active_company_id else None
     if company is not None:
