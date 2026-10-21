@@ -2,7 +2,6 @@ import { apiRequest as request } from './api/client';
 import type {
   EvaluationCriterion,
   CandidatePipelineStage,
-  JobRequirement,
   RetryMode,
   ScreeningApiRecord,
   ScreeningCreateInput,
@@ -10,16 +9,6 @@ import type {
 } from '../types/screening';
 
 export { getErrorMessage } from '../utils/errors';
-
-export interface AITestResponse {
-  ok: boolean;
-  model: string;
-  latency_ms: number;
-}
-
-export function testAIService(): Promise<AITestResponse> {
-  return request<AITestResponse>('/api/ai/test', { method: 'POST' });
-}
 
 export async function suggestScreeningCriteria(
   jobDescriptionText: string,
@@ -49,16 +38,6 @@ export async function updateScreening(
     method: 'PATCH',
     body: JSON.stringify(changes),
   });
-}
-
-export function updateScreeningRequirements(
-  screeningId: string,
-  requirements: JobRequirement[],
-): Promise<{ requirements: JobRequirement[]; queued_count: number }> {
-  return request<{ requirements: JobRequirement[]; queued_count: number }>(
-    `/api/screenings/${encodeURIComponent(screeningId)}/requirements`,
-    { method: 'PUT', body: JSON.stringify({ requirements }) },
-  );
 }
 
 export function reviewResumeScore(

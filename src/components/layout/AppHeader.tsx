@@ -4,7 +4,6 @@ import { Button, Dropdown } from 'antd';
 import { useMatch } from 'react-router-dom';
 
 import {
-  ApiOutlined,
   DownOutlined,
   LogoutOutlined,
   SettingOutlined,
@@ -26,7 +25,6 @@ interface AppHeaderProps {
   onCompanyArchived: (companyId: string) => void;
   onCompanyRestored: () => Promise<void>;
   onShowScreenings: () => void;
-  onShowAI: () => void;
   onSignOut: () => void;
 }
 
@@ -42,12 +40,10 @@ export default function AppHeader({
   onCompanyArchived,
   onCompanyRestored,
   onShowScreenings,
-  onShowAI,
   onSignOut,
 }: AppHeaderProps) {
   const [organizationPanelOpen, setOrganizationPanelOpen] = useState(false);
   const isShowingScreenings = Boolean(useMatch(routes.screenings));
-  const isShowingAI = Boolean(useMatch(routes.ai));
   const initials = user.full_name
     .trim()
     .split(/\s+/)
@@ -109,18 +105,6 @@ export default function AppHeader({
             onClick={onShowScreenings}
           >
             <span className="topbar-button-label">Screenings</span>
-          </Button>
-          <Button
-            className={`topbar-nav-link${isShowingAI ? ' is-active' : ''}`}
-            type="text"
-            size="middle"
-            icon={<ApiOutlined />}
-            aria-current={isShowingAI ? 'page' : undefined}
-            aria-label="AI service"
-            title="AI service"
-            onClick={onShowAI}
-          >
-            <span className="topbar-button-label">AI service</span>
           </Button>
         </nav>
         <Dropdown

@@ -48,7 +48,7 @@ from .database import (
     get_db,
     migrate_screening_schema,
 )
-from .evaluation import EvaluationCriterion, extract_pdf_text, suggest_criteria, test_ai_service
+from .evaluation import EvaluationCriterion, extract_pdf_text, suggest_criteria
 from .matching import JobRequirement, MatchingWeights, default_matching_weights
 from .models import (
     AuditLog,
@@ -154,10 +154,6 @@ class UpdateScreeningRequest(BaseModel):
     name: str = Field(min_length=2, max_length=160)
     job_description_text: str = Field(min_length=1, max_length=MAX_JOB_DESCRIPTION_CHARS)
     criteria: list[dict] | None = Field(default=None, max_length=MAX_EVALUATION_CRITERIA)
-
-
-class UpdateRequirementsRequest(BaseModel):
-    requirements: list[JobRequirement] = Field(min_length=1, max_length=40)
 
 
 class ScreeningTemplateRequest(BaseModel):
@@ -399,15 +395,6 @@ def deliver_company_invitation(
             detail="Invitation email could not be sent. Try again later.",
         ) from error
     return action_url if APP_ENV != "production" else None
-
-
-@app.post("/api/ai/test", tags=["ai"])
-def ai_test(_: User = Depends(get_current_user)):
-    try:
-        model, latency_ms = test_ai_service()
-    except RuntimeError as error:
-        raise HTTPException(status_code=503, detail=str(error)) from error
-    return {"ok": True, "model": model, "latency_ms": latency_ms}
 
 
 def auth_action_url(path: str, token: str) -> str:
@@ -2071,72 +2058,6 @@ def get_screening(
     if screening is None:
         raise HTTPException(status_code=404, detail="Screening not found.")
     return screening_payload(screening)
-
-
-@app.put("/api/screenings/{screening_id}/requirements", tags=["screenings"])
-def update_screening_requirements(
-    screening_id: str,
-    payload: UpdateRequirementsRequest,
-    db: Session = Depends(get_db),
-    user: User = Depends(get_company_user),
-):
-    require_company_permission(user, "can_edit")
-    screening = db.scalar(
-        select(Screening)
-        .options(selectinload(Screening.resumes).selectinload(Resume.evaluation))
-        .where(Screening.id == screening_id, screening_company_scope(user))
-    )
-    if screening is None:
-        raise HTTPException(status_code=404, detail="Screening not found.")
-    require_active_screening(screening)
-    requirements = [item.model_dump() for item in payload.requirements]
-    requirement_ids = [item["id"] for item in requirements]
-    if len(requirement_ids) != len(set(requirement_ids)):
-        raise HTTPException(status_code=422, detail="Requirement IDs must be unique.")
-    previous_requirements = screening.job_requirements or []
-    screening.job_requirements = requirements
-    now = datetime.now(timezone.utc)
-    for resume in screening.resumes:
-        evaluation = resume.evaluation
-        if evaluation is None:
-            resume.evaluation = ResumeEvaluation(status="queued", updated_at=now)
-            continue
-        evaluation.status = "queued"
-        evaluation.score = None
-        evaluation.job_match_score = None
-        evaluation.preferred_score = None
-        evaluation.bonus_points = None
-        evaluation.required_checks_passed = None
-        evaluation.required_checks = None
-        evaluation.job_evidence = None
-        evaluation.explanation = None
-        evaluation.assessments = None
-        evaluation.matching_details = None
-        evaluation.reviewer_override_score = None
-        evaluation.reviewer_override_note = None
-        evaluation.reviewer_id = None
-        evaluation.reviewer_updated_at = None
-        evaluation.error_message = None
-        evaluation.attempts = 0
-        evaluation.available_at = None
-        evaluation.updated_at = now
-    company = db.get(Company, screening.company_id) if screening.company_id else None
-    if company is not None:
-        write_audit_log(
-            db,
-            user=user,
-            company=company,
-            action="screening.requirements_updated",
-            resource_type="screening",
-            resource_id=screening.id,
-            details={
-                "previous_count": len(previous_requirements),
-                "requirement_count": len(requirements),
-                "requirements": [item["text"] for item in requirements],
-            },
-        )
-    db.commit()
-    return {"requirements": screening.job_requirements, "queued_count": len(screening.resumes)}
 
 
 @app.patch("/api/screenings/{screening_id}", tags=["screenings"])

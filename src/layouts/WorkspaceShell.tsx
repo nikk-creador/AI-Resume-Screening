@@ -14,7 +14,6 @@ interface WorkspaceShellProps {
   onCompanyRestored: () => Promise<void>;
   notificationHolder: ReactNode;
   onShowScreenings: () => void;
-  onShowAI: () => void;
   onSignOut: () => void;
   children: ReactNode;
 }
@@ -29,7 +28,6 @@ export default function WorkspaceShell({
   onCompanyRestored,
   notificationHolder,
   onShowScreenings,
-  onShowAI,
   onSignOut,
   children,
 }: WorkspaceShellProps) {
@@ -45,7 +43,6 @@ export default function WorkspaceShell({
         onCompanyArchived={onCompanyArchived}
         onCompanyRestored={onCompanyRestored}
         onShowScreenings={onShowScreenings}
-        onShowAI={onShowAI}
         onSignOut={onSignOut}
       />
       {children}

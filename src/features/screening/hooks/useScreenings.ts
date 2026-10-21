@@ -14,13 +14,11 @@ import {
   suggestScreeningCriteria,
   updateCandidatePipelineStage,
   updateScreening,
-  updateScreeningRequirements,
   uploadResumeBatch,
 } from '../../../services/screeningApi';
 import type {
   CandidatePipelineStage,
   EvaluationCriterion,
-  JobRequirement,
   RetryMode,
   ScreeningApiRecord,
   ScreeningCreateInput,
@@ -30,31 +28,6 @@ export function useScreenings(skip: number, limit: number, search: string) {
   return useQuery({
     queryKey: queryKeys.screenings.list(skip, limit, search),
     queryFn: () => listScreenings(skip, limit, search),
-  });
-}
-
-export function useAllScreenings() {
-  return useQuery({
-    queryKey: [...queryKeys.screenings.all(), 'all'] as const,
-    queryFn: async () => {
-      const screenings = [];
-      let skip = 0;
-      let total = Number.POSITIVE_INFINITY;
-
-      while (skip < total) {
-        const { screenings: pageScreenings, total: pageTotal } = await listScreenings(
-          skip,
-          100,
-          '',
-        );
-        screenings.push(...pageScreenings);
-        total = pageTotal;
-        skip += pageScreenings.length;
-        if (!pageScreenings.length) break;
-      }
-
-      return screenings;
-    },
   });
 }
 
@@ -193,16 +166,6 @@ export function useScreeningActions() {
     }) => updateCandidatePipelineStage(resumeId, stage),
     onSuccess: (_result, input) => invalidateScreening(input.screeningId),
   });
-  const requirementsMutation = useMutation({
-    mutationFn: ({
-      screeningId,
-      requirements,
-    }: {
-      screeningId: string;
-      requirements: JobRequirement[];
-    }) => updateScreeningRequirements(screeningId, requirements),
-    onSuccess: (_result, input) => invalidateScreening(input.screeningId),
-  });
   const suggestCriteriaMutation = useMutation({
     mutationFn: ({ jobText, jobFile }: { jobText: string; jobFile: File | null }) =>
       suggestScreeningCriteria(jobText, jobFile),
@@ -218,7 +181,6 @@ export function useScreeningActions() {
     stop: stopMutation.mutateAsync,
     review: reviewMutation.mutateAsync,
     updatePipelineStage: pipelineStageMutation.mutateAsync,
-    updateRequirements: requirementsMutation.mutateAsync,
     suggestCriteria: suggestCriteriaMutation.mutateAsync,
   };
 }

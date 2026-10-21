@@ -6,7 +6,6 @@ import logging
 import os
 from pathlib import Path
 import re
-from time import perf_counter
 from typing import Literal, TypeVar
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
@@ -191,10 +190,6 @@ class ModelEvaluation(BaseModel):
     job_evidence: list[str] = Field(max_length=5)
     required_checks: list[RequiredJobCheck] = Field(min_length=1, max_length=20)
     assessments: list[CriterionAssessment] = Field(max_length=20)
-
-
-class AIProbeResult(BaseModel):
-    status: Literal["ok"]
 
 
 def extract_resume_text(filename: str, content: bytes) -> str:
@@ -408,23 +403,6 @@ def _request_model(
         return response_model.model_validate_json(content)
     except (KeyError, TypeError, ValueError) as error:
         raise RuntimeError("The AI model returned an invalid evaluation.") from error
-
-
-def test_ai_service() -> tuple[str, int]:
-    """Make a tiny local generation request to check Ollama and the configured model."""
-    started = perf_counter()
-    _request_model(
-        'Return exactly {"status":"ok"}.',
-        AIProbeResult,
-        "You are a service diagnostic. Return the requested JSON only.",
-    )
-    provider = os.getenv("AI_PROVIDER", "ollama").strip().casefold()
-    model = os.getenv("AI_MODEL") or (
-        os.getenv("OLLAMA_MODEL", DEFAULT_MODEL)
-        if provider == "ollama"
-        else DEFAULT_HOSTED_MODEL
-    )
-    return model, round((perf_counter() - started) * 1000)
 
 
 def extract_job_requirements(job_description: str) -> JobDescriptionProfile:

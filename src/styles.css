@@ -34,20 +34,6 @@ textarea {
 .app-shell {
   min-height: 100vh;
 }
-.ai-service-card {
-  margin-bottom: 18px;
-}
-.ai-service-summary {
-  width: 100%;
-  align-items: center;
-}
-.ai-screening-reference {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 180px;
-}
-
 .topbar {
   position: sticky;
   z-index: 20;

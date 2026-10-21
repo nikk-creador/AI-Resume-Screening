@@ -9,7 +9,6 @@ export const routes = {
   screenings: '/screenings',
   screening: '/screening',
   newScreening: '/screening/new',
-  ai: '/ai',
   notFound: '*',
 } as const;
 

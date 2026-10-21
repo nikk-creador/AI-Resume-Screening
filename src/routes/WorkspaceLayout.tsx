@@ -38,7 +38,6 @@ import { getErrorMessage } from '../utils/errors';
 import { getExtension, validateJobDescription, validateResume } from '../utils/screeningValidation';
 
 const { Paragraph, Text, Title } = Typography;
-const AIServicePanel = lazy(() => import('../features/screening/components/AIServicePanel'));
 const CandidateResults = lazy(() => import('../features/screening/components/CandidateResults'));
 const ScreeningsList = lazy(() => import('../features/screening/components/ScreeningsList'));
 
@@ -136,7 +135,6 @@ export default function WorkspaceLayout({
   const [suggestingCriteria, setSuggestingCriteria] = useState(false);
   const [retryingMode, setRetryingMode] = useState<RetryMode | null>(null);
   const [stopping, setStopping] = useState(false);
-  const [deletingScreeningId, setDeletingScreeningId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [query, setQuery] = useState('');
   const [page, setPage] = useState(1);
@@ -476,24 +474,6 @@ export default function WorkspaceLayout({
     }
   };
 
-  const deleteScreeningFromAI = async (id: string): Promise<boolean> => {
-    setDeletingScreeningId(id);
-    try {
-      await screeningActions.deleteScreening(id);
-      if (id === screeningId) {
-        startNewScreening();
-        navigate(routes.screenings);
-      }
-      messageApi.success('Screening and its stored files were deleted.');
-      return true;
-    } catch (error: unknown) {
-      messageApi.error(getErrorMessage(error, 'Could not delete this screening.'));
-      return false;
-    } finally {
-      setDeletingScreeningId(null);
-    }
-  };
-
   const removeResumes = async (keys: string[]): Promise<void> => {
     const targets = resumesRef.current.filter((resume) => keys.includes(resume.key));
     if (!targets.length) return;
@@ -574,10 +554,6 @@ export default function WorkspaceLayout({
     if (await openSavedScreening(id)) navigate(screeningDetailRoute(id));
   };
 
-  const viewScreeningInAI = async (id: string) => {
-    if (await openSavedScreening(id)) navigate(screeningDetailRoute(id));
-  };
-
   const saveDisabled =
     loading ||
     saving ||
@@ -610,7 +586,6 @@ export default function WorkspaceLayout({
       onCompanyRestored={refreshCompanyMemberships}
       notificationHolder={contextHolder}
       onShowScreenings={() => navigate(routes.screenings)}
-      onShowAI={() => navigate(routes.ai)}
       onSignOut={onSignOut}
     >
       <Routes>
@@ -829,41 +804,6 @@ export default function WorkspaceLayout({
                 canEdit={activeCompany.permissions.edit}
               />
             </main>
-          }
-        />
-        <Route
-          path={routes.ai.slice(1)}
-          element={
-            <AIServicePanel
-              key={screeningId ?? 'none'}
-              canEdit={activeCompany.permissions.edit && !archivedAt}
-              screeningId={screeningId}
-              screeningName={screeningName}
-              resumes={resumes}
-              jobRequirements={jobRequirements}
-              stopping={stopping}
-              deletingId={deletingScreeningId}
-              onStop={stopCurrentScreening}
-              onDeleteScreening={deleteScreeningFromAI}
-              onViewScreening={viewScreeningInAI}
-              onSaveRequirements={async (requirements) => {
-                if (!screeningId) return;
-                try {
-                  const result = await screeningActions.updateRequirements({
-                    screeningId,
-                    requirements,
-                  });
-                  setJobRequirements(result.requirements);
-                  const saved = normalizeScreening(await fetchScreening(screeningId));
-                  updateResumes(saved.resumes);
-                  messageApi.success(
-                    'Requirements saved; candidate evaluations were queued again.',
-                  );
-                } catch (error: unknown) {
-                  messageApi.error(getErrorMessage(error, 'Could not save job requirements.'));
-                }
-              }}
-            />
           }
         />
         <Route path={routes.notFound} element={<NotFoundPage isAuthenticated />} />

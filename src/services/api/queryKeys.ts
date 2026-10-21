@@ -33,5 +33,4 @@ export const queryKeys = {
     root: ['invitation'] as const,
     token: (token: string) => [...queryKeys.invitations.root, token] as const,
   },
-  aiService: ['ai-service'] as const,
 };
