@@ -15,6 +15,7 @@ import {
   Typography,
 } from 'antd';
 
+import { TeamOutlined } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { queryKeys } from '../../../services/api/queryKeys';
@@ -24,6 +25,7 @@ import {
   saveCandidateTeamReview,
   updateCandidateAssignments,
 } from '../../../services/teamReviewApi';
+import { COLORS } from '../../../theme/colors';
 import type { ResumeRow } from '../../../types/screening';
 import { getErrorMessage } from '../../../utils/errors';
 import { displayName } from '../../../utils/screeningValidation';
@@ -123,7 +125,15 @@ export default function TeamReviewPanel({
 
   return (
     <Modal
-      title="Team review"
+      className="feature-modal team-review-modal"
+      title={
+        <span className="feature-modal-title">
+          <span className="feature-modal-icon">
+            <TeamOutlined />
+          </span>
+          <span>Team review</span>
+        </span>
+      }
       open={open}
       onCancel={onClose}
       footer={null}
@@ -131,21 +141,43 @@ export default function TeamReviewPanel({
       destroyOnHidden
     >
       {contextHolder}
-      <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-        <Text type="secondary">
-          Assign reviewers and collect their independent scores and notes. These assessments stay
-          separate from the model score and recruiter override.
-        </Text>
-        <Select
-          value={selectedResumeId}
-          placeholder="Choose a candidate"
-          options={storedResumes.map((resume) => ({
-            value: resume.id!,
-            label: `${displayName(resume.name)} · ${resume.evaluation?.status ?? 'not evaluated'}`,
-          }))}
-          onChange={setSelectedResumeId}
-          style={{ width: '100%' }}
-        />
+      <Space className="team-review-content" direction="vertical" size="middle">
+        <div className="feature-modal-intro">
+          <Text type="secondary">
+            Collect independent assessments alongside model results. Reviewer scores stay separate
+            from the recruiter override.
+          </Text>
+          <Tag color={COLORS.primary}>{storedResumes.length} candidates</Tag>
+        </div>
+        <div className="team-review-picker">
+          <Text strong>Select a candidate</Text>
+          <Select
+            value={selectedResumeId}
+            placeholder="Choose a candidate"
+            options={storedResumes.map((resume) => ({
+              value: resume.id!,
+              label: `${displayName(resume.name)} · ${resume.evaluation?.status ?? 'not evaluated'}`,
+            }))}
+            onChange={setSelectedResumeId}
+            style={{ width: '100%' }}
+          />
+        </div>
+        {selectedResume && (
+          <div className="team-review-candidate">
+            <span className="candidate-avatar" aria-hidden="true">
+              {displayName(selectedResume.name).slice(0, 1).toUpperCase()}
+            </span>
+            <div className="team-review-candidate-copy">
+              <Text strong>{displayName(selectedResume.name)}</Text>
+              <Text type="secondary">{selectedResume.name}</Text>
+            </div>
+            {selectedResume.evaluation?.score !== null &&
+              selectedResume.evaluation?.score !== undefined && (
+                <Tag color={COLORS.primary}>Model {selectedResume.evaluation.score}/100</Tag>
+              )}
+            {selectedResume.archivedAt && <Tag color="default">Archived · read only</Tag>}
+          </div>
+        )}
         {reviewsQuery.error && (
           <Alert
             type="error"
@@ -155,7 +187,7 @@ export default function TeamReviewPanel({
           />
         )}
         {canAssignSelectedResume && (
-          <Card size="small" title="Assigned reviewers">
+          <Card className="review-assignment-card" size="small" title="Assigned reviewers">
             <Space direction="vertical" style={{ width: '100%' }}>
               {reviewersQuery.error && (
                 <Alert
@@ -189,7 +221,7 @@ export default function TeamReviewPanel({
           </Card>
         )}
         {!canAssignSelectedResume && (
-          <div>
+          <div className="team-review-readonly-assignments">
             <Text strong>Assigned reviewers</Text>
             <div className="team-review-assignees">
               {activeAssignments.length ? (
@@ -203,17 +235,23 @@ export default function TeamReviewPanel({
           </div>
         )}
         <Divider style={{ marginBlock: 4 }} />
-        <div>
-          <Title level={5}>Independent assessments</Title>
+        <div className="team-review-assessments">
+          <div className="team-review-section-heading">
+            <div>
+              <Title level={5}>Independent assessments</Title>
+              <Text type="secondary">{teamReview?.reviews.length ?? 0} submitted</Text>
+            </div>
+          </div>
           {teamReview?.reviews.length ? (
             <List
+              className="team-review-list"
               dataSource={teamReview.reviews}
               renderItem={(review) => (
                 <List.Item key={review.reviewer_id}>
                   <div className="team-review-entry">
                     <div className="team-review-heading">
                       <Text strong>{review.full_name}</Text>
-                      <Tag color="blue">{review.score}/100</Tag>
+                      <Tag color={COLORS.primary}>{review.score}/100</Tag>
                     </div>
                     <Text type="secondary">
                       Updated {new Date(review.updated_at).toLocaleString()}
@@ -229,6 +267,7 @@ export default function TeamReviewPanel({
         </div>
         {isAssigned && canEditSelectedResume ? (
           <Card
+            className="review-submit-card"
             size="small"
             title={ownReview ? 'Update your assessment' : 'Submit your assessment'}
           >

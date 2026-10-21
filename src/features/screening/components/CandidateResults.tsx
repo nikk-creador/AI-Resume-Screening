@@ -10,6 +10,7 @@ import {
   Modal,
   Popconfirm,
   Popover,
+  Progress,
   Select,
   Space,
   Table,
@@ -18,11 +19,21 @@ import {
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 
-import { DownloadOutlined, ReloadOutlined, StopOutlined } from '@ant-design/icons';
+import {
+  DiffOutlined,
+  DownloadOutlined,
+  LockOutlined,
+  MessageOutlined,
+  ReloadOutlined,
+  StopOutlined,
+  TeamOutlined,
+  WarningOutlined,
+} from '@ant-design/icons';
 
 import InterviewQuestionPanel from './InterviewQuestionPanel';
 import TeamReviewPanel from './TeamReviewPanel';
 import { downloadApiFile } from '../../../services/api/client';
+import { COLORS } from '../../../theme/colors';
 import type {
   CandidatePipelineStage,
   CandidateRow,
@@ -257,7 +268,7 @@ export default function CandidateResults({
         return displayName(first.name).localeCompare(displayName(second.name));
       })
       .map((resume) => {
-        const evaluation = resume.evaluation;
+        const { evaluation } = resume;
         const requiredChecks = (evaluation?.required_checks ?? [])
           .map(
             (check) =>
@@ -303,9 +314,12 @@ export default function CandidateResults({
     const blob = new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
-    const safeName = screeningName
-      .trim()
-      .replace(/[<>:"/\\|?*\u0000-\u001f]/g, '-')
+    const safeName = [...screeningName.trim()]
+      .map((character) => {
+        const codePoint = character.codePointAt(0) ?? 0;
+        return /[<>:"/\\|?*]/u.test(character) || codePoint <= 31 ? '-' : character;
+      })
+      .join('')
       .replace(/\s+/g, '-');
     link.href = url;
     link.download = `${safeName || 'screening'}-scorecard-${new Date().toISOString().slice(0, 10)}.csv`;
@@ -356,15 +370,29 @@ export default function CandidateResults({
                 </Tag>
               )}
             </Text>
-            {resume.duplicateReason && (
-              <Tag
-                color="orange"
-                title={`${resume.duplicateReason}${resume.duplicateOfFilename ? ` · Similar to ${resume.duplicateOfFilename}` : ''}`}
-              >
-                Possible duplicate
-              </Tag>
+            {(resume.duplicateReason || resume.archivedAt) && (
+              <span className="candidate-flags">
+                {resume.duplicateReason && (
+                  <Tag
+                    className="candidate-flag candidate-flag-duplicate"
+                    color={COLORS.warning}
+                    icon={<WarningOutlined />}
+                    title={`${resume.duplicateReason}${resume.duplicateOfFilename ? ` · Similar to ${resume.duplicateOfFilename}` : ''}`}
+                  >
+                    Possible duplicate
+                  </Tag>
+                )}
+                {resume.archivedAt && (
+                  <Tag
+                    className="candidate-flag candidate-flag-archived"
+                    color={COLORS.primary}
+                    icon={<LockOutlined />}
+                  >
+                    Archived
+                  </Tag>
+                )}
+              </span>
             )}
-            {resume.archivedAt && <Tag color="blue">Archived</Tag>}
           </span>
         </div>
       ),
@@ -407,7 +435,16 @@ export default function CandidateResults({
           value === null || value === undefined ? 'Not available' : `${value}${suffix}`;
         return (
           <div className="candidate-score">
-            <Text strong>{evaluation.score ?? 0}/100</Text>
+            <div className="candidate-score-main">
+              <Text strong>{evaluation.score ?? 0}</Text>
+              <Text type="secondary">/100</Text>
+              <Progress
+                percent={evaluation.score ?? 0}
+                showInfo={false}
+                size="small"
+                aria-label={`Match score ${evaluation.score ?? 0} out of 100`}
+              />
+            </div>
             <Popover
               title="Detailed match score"
               trigger="click"
@@ -536,6 +573,7 @@ export default function CandidateResults({
       render: (stage: CandidatePipelineStage, resume: CandidateRow) =>
         canEdit && resume.id && !resume.archivedAt ? (
           <Select
+            className={`pipeline-stage-select pipeline-stage-${stage}`}
             size="small"
             value={stage}
             loading={updatingPipelineStageId === resume.id}
@@ -548,30 +586,43 @@ export default function CandidateResults({
             style={{ minWidth: 120 }}
           />
         ) : (
-          <Tag>{pipelineStageOptions.find((option) => option.value === stage)?.label ?? 'New'}</Tag>
+          <Tag className={`pipeline-stage-tag pipeline-stage-${stage}`}>
+            {pipelineStageOptions.find((option) => option.value === stage)?.label ?? 'New'}
+          </Tag>
         ),
     },
     {
       title: 'STATUS',
       key: 'status',
       width: 175,
-      render: (_, resume) => (
-        <Tag className="status-tag">
-          {resume.evaluation?.status === 'completed'
-            ? 'Evaluated'
-            : resume.evaluation?.status === 'failed'
-              ? 'Parsing/evaluation failed'
-              : resume.evaluation?.status === 'stopped'
-                ? 'Stopped'
-                : resume.evaluation?.status === 'processing'
-                  ? 'Parsing and evaluating'
-                  : resume.evaluation?.status === 'queued'
-                    ? 'Queued for parsing'
-                    : resume.id
-                      ? 'Stored'
-                      : 'Ready to upload'}
-        </Tag>
-      ),
+      render: (_, resume) => {
+        const status = resume.evaluation?.status ?? (resume.id ? 'stored' : 'ready');
+        const statusColor =
+          status === 'completed'
+            ? COLORS.success
+            : status === 'failed'
+              ? COLORS.danger
+              : status === 'processing' || status === 'queued'
+                ? COLORS.primary
+                : 'default';
+        return (
+          <Tag className={`status-tag status-tag-${status}`} color={statusColor}>
+            {resume.evaluation?.status === 'completed'
+              ? 'Evaluated'
+              : resume.evaluation?.status === 'failed'
+                ? 'Parsing/evaluation failed'
+                : resume.evaluation?.status === 'stopped'
+                  ? 'Stopped'
+                  : resume.evaluation?.status === 'processing'
+                    ? 'Parsing and evaluating'
+                    : resume.evaluation?.status === 'queued'
+                      ? 'Queued for parsing'
+                      : resume.id
+                        ? 'Stored'
+                        : 'Ready to upload'}
+          </Tag>
+        );
+      },
     },
     {
       title: 'ACTIONS',
@@ -652,19 +703,23 @@ export default function CandidateResults({
         </div>
         <div className="results-actions">
           {isSaved && comparableResumes.length > 1 && (
-            <Button onClick={() => setComparisonOpen(true)}>Compare candidates</Button>
+            <Button icon={<DiffOutlined />} onClick={() => setComparisonOpen(true)}>
+              Compare
+            </Button>
           )}
           {isSaved && resumes.length > 0 && (
             <Button icon={<DownloadOutlined />} onClick={exportScorecard}>
-              Export scorecard
+              Export CSV
             </Button>
           )}
           {isSaved && resumes.some((resume) => resume.id) && (
-            <Button onClick={() => setTeamReviewOpen(true)}>Team reviews</Button>
+            <Button icon={<TeamOutlined />} onClick={() => setTeamReviewOpen(true)}>
+              Team review
+            </Button>
           )}
           {isSaved && completedCount > 0 && (
-            <Button onClick={() => setInterviewQuestionsOpen(true)}>
-              Draft interview questions
+            <Button icon={<MessageOutlined />} onClick={() => setInterviewQuestionsOpen(true)}>
+              Interview questions
             </Button>
           )}
           {canEdit && isSaved && resumes.length > 0 && (
@@ -718,18 +773,26 @@ export default function CandidateResults({
 
       {isSaved && (
         <div className="ranking-progress" aria-live="polite">
-          <Text strong>
-            {completedCount} of {resumes.length} ranked
-          </Text>
-          <Text type="secondary">
-            {activeCount} queued or processing · {failedCount} failed
-          </Text>
+          <div className="ranking-progress-copy">
+            <Text strong>
+              {completedCount} of {resumes.length} ranked
+            </Text>
+            <Text type="secondary">
+              {activeCount} in progress · {failedCount} failed · {stoppedCount} stopped
+            </Text>
+          </div>
+          <Progress
+            className="ranking-progress-bar"
+            percent={Math.round((completedCount / Math.max(resumes.length, 1)) * 100)}
+            status={failedCount ? 'exception' : undefined}
+            size="small"
+          />
         </div>
       )}
 
       {isSaved && duplicateCount > 0 && (
         <Alert
-          className="service-notice"
+          className="service-notice duplicate-notice"
           type="warning"
           showIcon
           title={`${duplicateCount} possible duplicate ${duplicateCount === 1 ? 'resume' : 'resumes'} flagged`}
@@ -738,7 +801,15 @@ export default function CandidateResults({
       )}
 
       <Modal
-        title="Compare shortlisted candidates"
+        className="feature-modal comparison-modal"
+        title={
+          <span className="feature-modal-title">
+            <span className="feature-modal-icon">
+              <DiffOutlined />
+            </span>
+            <span>Compare candidates</span>
+          </span>
+        }
         open={comparisonOpen}
         onCancel={() => setComparisonOpen(false)}
         footer={null}
@@ -746,11 +817,15 @@ export default function CandidateResults({
         destroyOnHidden
       >
         <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-          <Text type="secondary">
-            Compare completed evaluations from this screening against the same job criteria. Scores
-            and evidence are shown for each requirement.
-          </Text>
+          <div className="comparison-intro">
+            <Text type="secondary">
+              Compare completed evaluations against the same role criteria. Each score stays paired
+              with its resume evidence.
+            </Text>
+            <Tag color={COLORS.primary}>Up to 4 candidates</Tag>
+          </div>
           <Select
+            className="comparison-candidate-select"
             mode="multiple"
             value={comparisonKeys}
             onChange={(keys: string[]) => {
@@ -766,6 +841,7 @@ export default function CandidateResults({
               label: `${displayName(resume.name)} · ${resume.evaluation?.score ?? '—'}/100`,
             }))}
             placeholder="Choose up to four candidates"
+            maxTagCount="responsive"
             style={{ width: '100%' }}
           />
           {comparisonResumes.length > 0 ? (
@@ -791,12 +867,18 @@ export default function CandidateResults({
                 },
                 ...comparisonResumes.map((resume) => ({
                   title: (
-                    <Space direction="vertical" size={0}>
+                    <div className="comparison-candidate-heading">
                       <Text strong>{displayName(resume.name)}</Text>
-                      <Text type="secondary">
-                        Final score: {resume.evaluation?.score ?? '—'}/100
-                      </Text>
-                    </Space>
+                      <div className="comparison-final-score">
+                        <Text strong>{resume.evaluation?.score ?? '—'}</Text>
+                        <Text type="secondary">/100 final score</Text>
+                      </div>
+                      <Progress
+                        percent={resume.evaluation?.score ?? 0}
+                        showInfo={false}
+                        size="small"
+                      />
+                    </div>
                   ),
                   key: resume.key,
                   width: 260,
@@ -807,15 +889,25 @@ export default function CandidateResults({
                     if (!assessment) return <Text type="secondary">No assessment</Text>;
                     return (
                       <div className="candidate-comparison-cell">
-                        <Text strong>
-                          {assessment.score}/100 · {assessment.status || 'Scored'}
-                        </Text>
+                        <div className="comparison-criterion-score">
+                          <Text strong>{assessment.score}</Text>
+                          <Text type="secondary">/100</Text>
+                          <Tag
+                            color={
+                              assessment.status === 'matched' ? COLORS.success : COLORS.warning
+                            }
+                          >
+                            {(assessment.status || 'scored').replaceAll('_', ' ')}
+                          </Tag>
+                        </div>
                         {assessment.evidence.length ? (
-                          assessment.evidence.map((quote, index) => (
-                            <Text type="secondary" key={`${assessment.criterion_id}-${index}`}>
-                              “{quote}”
-                            </Text>
-                          ))
+                          getKeyedEvidence(assessment.criterion_id, assessment.evidence).map(
+                            ({ key, quote }) => (
+                              <blockquote className="comparison-evidence-quote" key={key}>
+                                {quote}
+                              </blockquote>
+                            ),
+                          )
                         ) : (
                           <Text type="secondary">No resume evidence recorded.</Text>
                         )}
@@ -829,7 +921,10 @@ export default function CandidateResults({
               }}
             />
           ) : (
-            <Empty description="Select at least one candidate to view scores and evidence." />
+            <Empty
+              className="comparison-empty"
+              description="Choose candidates above to compare scores and resume evidence."
+            />
           )}
         </Space>
       </Modal>

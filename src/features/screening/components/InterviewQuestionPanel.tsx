@@ -1,15 +1,26 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Alert, Button, Card, List, Modal, Select, Space, Tag, Typography } from 'antd';
+import { Alert, Button, Card, List, Modal, Select, Space, Spin, Tag, Typography } from 'antd';
 
+import { MessageOutlined } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
 
 import { queryKeys } from '../../../services/api/queryKeys';
 import { suggestInterviewQuestions } from '../../../services/interviewQuestionApi';
+import { COLORS } from '../../../theme/colors';
 import type { ResumeRow } from '../../../types/screening';
 import { getErrorMessage } from '../../../utils/errors';
 import { displayName } from '../../../utils/screeningValidation';
 
 const { Paragraph, Text } = Typography;
+
+function getKeyedQuestionEvidence(criterionId: string, evidence: string[]) {
+  const occurrences = new Map<string, number>();
+  return evidence.map((quote) => {
+    const occurrence = occurrences.get(quote) ?? 0;
+    occurrences.set(quote, occurrence + 1);
+    return { key: JSON.stringify([criterionId, quote, occurrence]), quote };
+  });
+}
 
 interface InterviewQuestionPanelProps {
   open: boolean;
@@ -47,28 +58,44 @@ export default function InterviewQuestionPanel({
 
   return (
     <Modal
-      title="Draft interview questions"
+      className="feature-modal interview-question-modal"
+      title={
+        <span className="feature-modal-title">
+          <span className="feature-modal-icon">
+            <MessageOutlined />
+          </span>
+          <span>Interview questions</span>
+        </span>
+      }
       open={open}
       onCancel={onClose}
       footer={null}
       width={760}
       destroyOnHidden
     >
-      <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-        <Text type="secondary">
-          Suggested follow-up questions are tied to this candidate’s evaluated role criteria and
-          recorded resume evidence. Review them before using them in an interview.
-        </Text>
-        <Select
-          value={selectedResumeId}
-          options={completedResumes.map((resume) => ({
-            value: resume.id!,
-            label: `${displayName(resume.name)} · ${resume.evaluation?.score ?? '—'}/100`,
-          }))}
-          placeholder="Choose a completed candidate"
-          onChange={setSelectedResumeId}
-          style={{ width: '100%' }}
-        />
+      <Space className="interview-question-content" direction="vertical" size="middle">
+        <div className="feature-modal-intro">
+          <Text type="secondary">
+            Questions connect the candidate’s evaluated role criteria to evidence in the resume.
+            Review the evidence before using each prompt.
+          </Text>
+          {questionsQuery.data && (
+            <Tag color={COLORS.primary}>{questionsQuery.data.length} prompts</Tag>
+          )}
+        </div>
+        <div className="interview-question-picker">
+          <Text strong>Candidate</Text>
+          <Select
+            value={selectedResumeId}
+            options={completedResumes.map((resume) => ({
+              value: resume.id!,
+              label: `${displayName(resume.name)} · ${resume.evaluation?.score ?? '—'}/100`,
+            }))}
+            placeholder="Choose a completed candidate"
+            onChange={setSelectedResumeId}
+            style={{ width: '100%' }}
+          />
+        </div>
         {questionsQuery.error && (
           <Alert
             type="error"
@@ -78,38 +105,49 @@ export default function InterviewQuestionPanel({
           />
         )}
         {questionsQuery.isLoading ? (
-          <Text type="secondary">Preparing evidence-based questions…</Text>
+          <div className="interview-question-loading">
+            <Spin size="small" />
+            <Text type="secondary">Preparing evidence-based questions…</Text>
+          </div>
         ) : questionsQuery.data?.length ? (
           <List
+            className="interview-question-list"
             dataSource={questionsQuery.data}
-            renderItem={(suggestion) => (
-              <List.Item key={suggestion.criterion_id}>
+            renderItem={(suggestion, index) => (
+              <List.Item className="interview-question-list-item" key={suggestion.criterion_id}>
                 <Card
+                  className="interview-question-card"
                   size="small"
                   title={
-                    <Space wrap>
+                    <div className="interview-question-heading">
+                      <span className="interview-question-number">
+                        {String(index + 1).padStart(2, '0')}
+                      </span>
                       <Tag>{suggestion.criterion_type}</Tag>
                       <Text strong>{suggestion.criterion}</Text>
-                    </Space>
+                    </div>
                   }
-                  style={{ width: '100%' }}
                 >
-                  <Paragraph>{suggestion.question}</Paragraph>
-                  <Space wrap>
-                    <Tag color={suggestion.status === 'matched' ? 'green' : 'default'}>
+                  <Paragraph className="interview-question-prompt">{suggestion.question}</Paragraph>
+                  <Space className="interview-question-meta" wrap>
+                    <Tag color={suggestion.status === 'matched' ? COLORS.success : 'default'}>
                       {suggestion.status.replaceAll('_', ' ')}
                     </Tag>
                     {suggestion.score !== null && <Tag>{suggestion.score}/100</Tag>}
-                    <Text type="secondary">{suggestion.grounding}</Text>
                   </Space>
+                  <Text className="interview-question-grounding" type="secondary">
+                    {suggestion.grounding}
+                  </Text>
                   {suggestion.evidence.length > 0 && (
                     <div className="interview-question-evidence">
                       <Text strong>Resume evidence</Text>
-                      {suggestion.evidence.map((quote, index) => (
-                        <Text type="secondary" key={`${suggestion.criterion_id}-${index}`}>
-                          “{quote}”
-                        </Text>
-                      ))}
+                      {getKeyedQuestionEvidence(suggestion.criterion_id, suggestion.evidence).map(
+                        ({ key, quote }) => (
+                          <Text type="secondary" key={key}>
+                            “{quote}”
+                          </Text>
+                        ),
+                      )}
                     </div>
                   )}
                 </Card>

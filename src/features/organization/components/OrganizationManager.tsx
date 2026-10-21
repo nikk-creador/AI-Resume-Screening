@@ -1,8 +1,11 @@
 import { useEffect, useState } from 'react';
 import {
   Alert,
+  Avatar,
   Button,
+  Card,
   Checkbox,
+  Col,
   Divider,
   Drawer,
   Form,
@@ -10,14 +13,17 @@ import {
   InputNumber,
   message,
   Popconfirm,
+  Row,
   Select,
   Space,
   Switch,
   Table,
+  Tag,
   Typography,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 
+import { ClockCircleOutlined, HistoryOutlined, SafetyCertificateOutlined } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { queryKeys } from '../../../services/api/queryKeys';
@@ -25,12 +31,12 @@ import {
   archiveCompany,
   createCompany,
   createOrganization,
+  getCompanyRetentionPolicy,
   inviteCompanyMember,
   listCompanyAuditLog,
   listCompanyInvitations,
   listCompanyMembers,
   listOrganizationCompanies,
-  getCompanyRetentionPolicy,
   resendCompanyInvitation,
   restoreCompany,
   revokeCompanyInvitation,
@@ -38,6 +44,7 @@ import {
   updateCompanyMember,
   updateCompanyRetentionPolicy,
 } from '../../../services/organizationApi';
+import { COLORS } from '../../../theme/colors';
 import type {
   CompanyAccess,
   CompanyAuditEvent,
@@ -52,6 +59,28 @@ const { Text } = Typography;
 
 function auditActionLabel(action: string) {
   return action.replace(/[._]/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function auditActionColor(action: string) {
+  if (action.includes('deleted') || action.includes('revoked')) return COLORS.danger;
+  if (action.includes('review') || action.includes('override')) return COLORS.warning;
+  if (action.includes('archived') || action.includes('retention')) return COLORS.primary;
+  return 'default';
+}
+
+function auditDetailsSummary(details: Record<string, unknown> | null) {
+  if (!details) return '—';
+  if (typeof details.score === 'number') return `Score ${details.score}/100`;
+  if (typeof details.queued_count === 'number') {
+    return `${details.queued_count} candidate${details.queued_count === 1 ? '' : 's'} queued`;
+  }
+  if (typeof details.count === 'number') {
+    return `${details.count} record${details.count === 1 ? '' : 's'}`;
+  }
+  if (typeof details.screening_name === 'string') return details.screening_name;
+  if (typeof details.email === 'string') return details.email;
+  if (typeof details.name === 'string') return details.name;
+  return JSON.stringify(details);
 }
 
 interface OrganizationManagerProps {
@@ -547,134 +576,209 @@ export default function OrganizationManager({
             ]}
           />
           <Divider />
-          <Text strong>Data retention</Text>
-          <Text type="secondary">
-            Rules use the resume upload date and screening creation date. Archive keeps records
-            available for review; delete permanently removes their files and records.
-          </Text>
-          {retentionQuery.error && (
-            <Alert
-              style={{ marginTop: 12 }}
-              type="error"
-              showIcon
-              message={getErrorMessage(
-                retentionQuery.error,
-                'Could not load the retention policy.',
-              )}
-              action={<Button onClick={() => void retentionQuery.refetch()}>Retry</Button>}
-            />
-          )}
-          <Form
-            form={retentionForm}
-            layout="vertical"
-            initialValues={{
-              enabled: false,
-              resume_after_days: 365,
-              resume_action: 'archive',
-              screening_after_days: 730,
-              screening_action: 'archive',
-            }}
-            onFinish={(values) => retentionMutation.mutate(values)}
-            style={{ marginTop: 12 }}
-          >
-            <Form.Item name="enabled" valuePropName="checked">
-              <Switch checkedChildren="Enabled" unCheckedChildren="Disabled" />
-            </Form.Item>
-            <Space wrap align="start">
-              <Form.Item
-                label="Resumes older than (days)"
-                name="resume_after_days"
-                rules={[{ required: true, type: 'number', min: 1, max: 3650 }]}
-              >
-                <InputNumber min={1} max={3650} precision={0} />
-              </Form.Item>
-              <Form.Item label="Resume action" name="resume_action" rules={[{ required: true }]}>
-                <Select
-                  style={{ width: 150 }}
-                  options={[
-                    { label: 'Archive', value: 'archive' },
-                    { label: 'Delete', value: 'delete' },
-                  ]}
-                />
-              </Form.Item>
-              <Form.Item
-                label="Screenings older than (days)"
-                name="screening_after_days"
-                rules={[{ required: true, type: 'number', min: 1, max: 3650 }]}
-              >
-                <InputNumber min={1} max={3650} precision={0} />
-              </Form.Item>
-              <Form.Item
-                label="Screening action"
-                name="screening_action"
-                rules={[{ required: true }]}
-              >
-                <Select
-                  style={{ width: 150 }}
-                  options={[
-                    { label: 'Archive', value: 'archive' },
-                    { label: 'Delete', value: 'delete' },
-                  ]}
-                />
-              </Form.Item>
-            </Space>
-            <Button
-              type="primary"
-              htmlType="submit"
-              loading={retentionMutation.isPending}
-              disabled={retentionQuery.isPending || Boolean(retentionQuery.error)}
-            >
-              Save retention policy
-            </Button>
-          </Form>
-          <Divider />
-          <Text strong>Recent audit history</Text>
-          <Text type="secondary">
-            Company actions, screening criteria changes, candidate reviews, and data deletions.
-          </Text>
-          <Table<CompanyAuditEvent>
-            rowKey="id"
+          <Card
+            className="retention-policy-card"
             size="small"
-            pagination={{ pageSize: 5, size: 'small' }}
-            loading={auditQuery.isPending}
-            dataSource={auditQuery.data?.events ?? []}
-            style={{ marginTop: 12 }}
-            scroll={{ x: 820 }}
-            columns={[
-              {
-                title: 'Activity',
-                dataIndex: 'action',
-                key: 'action',
-                render: (action: string) => auditActionLabel(action),
-              },
-              {
-                title: 'Who',
-                dataIndex: 'actor_id',
-                key: 'actor',
-                render: (actorId: string | null) =>
-                  actorId
-                    ? (membersQuery.data?.find((member) => member.user_id === actorId)?.full_name ??
-                      actorId.slice(0, 8))
-                    : 'System',
-              },
-              {
-                title: 'Details',
-                dataIndex: 'details',
-                key: 'details',
-                render: (details: Record<string, unknown> | null) => {
-                  const summary = details ? JSON.stringify(details) : '';
-                  return summary ? <Text ellipsis={{ tooltip: summary }}>{summary}</Text> : '—';
+            title={
+              <span className="feature-card-title">
+                <SafetyCertificateOutlined />
+                <span>Data retention</span>
+              </span>
+            }
+            extra={
+              <Tag color={retentionQuery.data?.enabled ? COLORS.success : 'default'}>
+                {retentionQuery.data?.enabled ? 'Automatic rules on' : 'Disabled'}
+              </Tag>
+            }
+          >
+            <Text className="retention-description" type="secondary">
+              Choose how long the company keeps resume files and screening records. Archive keeps
+              them available for review; delete permanently removes the records and files.
+            </Text>
+            {retentionQuery.error && (
+              <Alert
+                style={{ marginTop: 12 }}
+                type="error"
+                showIcon
+                message={getErrorMessage(
+                  retentionQuery.error,
+                  'Could not load the retention policy.',
+                )}
+                action={<Button onClick={() => void retentionQuery.refetch()}>Retry</Button>}
+              />
+            )}
+            <Form
+              form={retentionForm}
+              className="retention-policy-form"
+              layout="vertical"
+              initialValues={{
+                enabled: false,
+                resume_after_days: 365,
+                resume_action: 'archive',
+                screening_after_days: 730,
+                screening_action: 'archive',
+              }}
+              onFinish={(values) => retentionMutation.mutate(values)}
+              style={{ marginTop: 12 }}
+            >
+              <div className="retention-enable-row">
+                <div>
+                  <Text strong>Automatic retention</Text>
+                  <Text type="secondary">Run these rules once per day.</Text>
+                </div>
+                <Form.Item name="enabled" valuePropName="checked" noStyle>
+                  <Switch checkedChildren="On" unCheckedChildren="Off" />
+                </Form.Item>
+              </div>
+              <Row gutter={[12, 12]} className="retention-rules-grid">
+                <Col xs={24} md={12}>
+                  <div className="retention-rule-card">
+                    <div className="retention-rule-heading">
+                      <Text strong>Resume files</Text>
+                      <Text type="secondary">Age from upload date</Text>
+                    </div>
+                    <Form.Item
+                      label="Keep for"
+                      name="resume_after_days"
+                      rules={[{ required: true, type: 'number', min: 1, max: 3650 }]}
+                    >
+                      <InputNumber min={1} max={3650} precision={0} addonAfter="days" />
+                    </Form.Item>
+                    <Form.Item
+                      label="When the limit is reached"
+                      name="resume_action"
+                      rules={[{ required: true }]}
+                    >
+                      <Select
+                        options={[
+                          { label: 'Archive for review', value: 'archive' },
+                          { label: 'Delete permanently', value: 'delete' },
+                        ]}
+                      />
+                    </Form.Item>
+                  </div>
+                </Col>
+                <Col xs={24} md={12}>
+                  <div className="retention-rule-card">
+                    <div className="retention-rule-heading">
+                      <Text strong>Screening records</Text>
+                      <Text type="secondary">Age from screening creation</Text>
+                    </div>
+                    <Form.Item
+                      label="Keep for"
+                      name="screening_after_days"
+                      rules={[{ required: true, type: 'number', min: 1, max: 3650 }]}
+                    >
+                      <InputNumber min={1} max={3650} precision={0} addonAfter="days" />
+                    </Form.Item>
+                    <Form.Item
+                      label="When the limit is reached"
+                      name="screening_action"
+                      rules={[{ required: true }]}
+                    >
+                      <Select
+                        options={[
+                          { label: 'Archive for review', value: 'archive' },
+                          { label: 'Delete permanently', value: 'delete' },
+                        ]}
+                      />
+                    </Form.Item>
+                  </div>
+                </Col>
+              </Row>
+              <div className="retention-policy-footer">
+                <Text type="secondary">Changes are recorded in the company audit history.</Text>
+                <Button
+                  type="primary"
+                  htmlType="submit"
+                  loading={retentionMutation.isPending}
+                  disabled={retentionQuery.isPending || Boolean(retentionQuery.error)}
+                >
+                  Save policy
+                </Button>
+              </div>
+            </Form>
+          </Card>
+          <Divider />
+          <Card
+            className="audit-history-card"
+            size="small"
+            title={
+              <span className="feature-card-title">
+                <HistoryOutlined />
+                <span>Audit history</span>
+              </span>
+            }
+            extra={<Tag>{auditQuery.data?.events.length ?? 0} recent events</Tag>}
+          >
+            <Text className="audit-history-description" type="secondary">
+              Company settings, screening changes, reviews, and data actions.
+            </Text>
+            <Table<CompanyAuditEvent>
+              rowKey="id"
+              size="small"
+              pagination={{ pageSize: 5, size: 'small' }}
+              loading={auditQuery.isPending}
+              dataSource={auditQuery.data?.events ?? []}
+              style={{ marginTop: 12 }}
+              scroll={{ x: 820 }}
+              columns={[
+                {
+                  title: 'Activity',
+                  dataIndex: 'action',
+                  key: 'action',
+                  render: (action: string) => (
+                    <Tag color={auditActionColor(action)}>{auditActionLabel(action)}</Tag>
+                  ),
                 },
-              },
-              { title: 'Type', dataIndex: 'resource_type', key: 'resource_type' },
-              {
-                title: 'When',
-                dataIndex: 'created_at',
-                key: 'created_at',
-                render: (date: string) => new Date(date).toLocaleString(),
-              },
-            ]}
-          />
+                {
+                  title: 'Who',
+                  dataIndex: 'actor_id',
+                  key: 'actor',
+                  render: (actorId: string | null) => {
+                    const actorName = actorId
+                      ? (membersQuery.data?.find((member) => member.user_id === actorId)
+                          ?.full_name ?? actorId.slice(0, 8))
+                      : 'System';
+                    return (
+                      <span className="audit-actor">
+                        <Avatar size={24}>{actorName.slice(0, 1).toUpperCase()}</Avatar>
+                        <Text>{actorName}</Text>
+                      </span>
+                    );
+                  },
+                },
+                {
+                  title: 'Details',
+                  dataIndex: 'details',
+                  key: 'details',
+                  render: (details: Record<string, unknown> | null) => {
+                    const summary = auditDetailsSummary(details);
+                    const raw = details ? JSON.stringify(details) : summary;
+                    return <Text ellipsis={{ tooltip: raw }}>{summary}</Text>;
+                  },
+                },
+                { title: 'Type', dataIndex: 'resource_type', key: 'resource_type' },
+                {
+                  title: 'When',
+                  dataIndex: 'created_at',
+                  key: 'created_at',
+                  render: (date: string) => (
+                    <span className="audit-timestamp">
+                      <Text>{new Date(date).toLocaleDateString()}</Text>
+                      <Text type="secondary">
+                        <ClockCircleOutlined />{' '}
+                        {new Date(date).toLocaleTimeString([], {
+                          hour: 'numeric',
+                          minute: '2-digit',
+                        })}
+                      </Text>
+                    </span>
+                  ),
+                },
+              ]}
+            />
+          </Card>
         </>
       )}
     </Drawer>

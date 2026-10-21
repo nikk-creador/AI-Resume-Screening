@@ -1,5 +1,16 @@
 import { useState } from 'react';
-import { Alert, Button, Empty, Input, Modal, Popconfirm, Table, Tag, Typography } from 'antd';
+import {
+  Alert,
+  Button,
+  Empty,
+  Input,
+  Modal,
+  Popconfirm,
+  Progress,
+  Table,
+  Tag,
+  Typography,
+} from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 
 import { DeleteOutlined, EditOutlined } from '@ant-design/icons';
@@ -7,6 +18,7 @@ import { useQueryClient } from '@tanstack/react-query';
 
 import { queryKeys } from '../../../services/api/queryKeys';
 import { loadScreening } from '../../../services/screeningApi';
+import { COLORS } from '../../../theme/colors';
 import type { ScreeningApiRecord, ScreeningListItem } from '../../../types/screening';
 import { getErrorMessage } from '../../../utils/errors';
 import { formatLocalDateTime, getWordCount } from '../../../utils/screeningValidation';
@@ -108,7 +120,11 @@ export default function ScreeningsList({
       render: (_, screening) => (
         <div className="screening-list-job">
           <Text strong>{screening.name}</Text>
-          {screening.archived_at && <Tag color="blue">Archived</Tag>}
+          {screening.archived_at && (
+            <Tag className="screening-archive-tag" color={COLORS.primary}>
+              Archived
+            </Tag>
+          )}
         </div>
       ),
     },
@@ -124,38 +140,51 @@ export default function ScreeningsList({
       dataIndex: 'resume_count',
       key: 'resume_count',
       width: 110,
+      render: (count: number) => <Tag className="screening-count-tag">{count}</Tag>,
     },
     {
       title: 'PROGRESS',
       key: 'progress',
       width: 160,
-      render: (_, screening) => (
-        <div className="screening-list-progress">
-          <Text>
-            {screening.completed_count}/{screening.resume_count} ranked
-          </Text>
-          {(screening.active_count > 0 || screening.failed_count > 0) && (
-            <Text type="secondary">
-              {screening.active_count > 0 ? `${screening.active_count} active` : ''}
-              {screening.active_count > 0 &&
-              (screening.failed_count > 0 || screening.stopped_count > 0)
-                ? ' · '
-                : ''}
-              {screening.failed_count > 0 ? `${screening.failed_count} failed` : ''}
-              {screening.failed_count > 0 && screening.stopped_count > 0 ? ' · ' : ''}
-              {screening.stopped_count > 0 ? `${screening.stopped_count} stopped` : ''}
+      render: (_, screening) => {
+        const total = Math.max(screening.resume_count, 1);
+        const percent = Math.round((screening.completed_count / total) * 100);
+        return (
+          <div className="screening-list-progress">
+            <div className="screening-progress-label">
+              <Text strong>{percent}%</Text>
+              <Text type="secondary">
+                {screening.completed_count}/{screening.resume_count} ranked
+              </Text>
+            </div>
+            <Progress
+              percent={percent}
+              showInfo={false}
+              size="small"
+              status={screening.failed_count ? 'exception' : undefined}
+            />
+            <Text className="screening-progress-meta" type="secondary">
+              {screening.active_count} active · {screening.failed_count} failed ·{' '}
+              {screening.stopped_count} stopped
             </Text>
-          )}
-        </div>
-      ),
+          </div>
+        );
+      },
     },
     {
       title: 'AVG. SCORE',
       dataIndex: 'average_score',
       key: 'average_score',
-      width: 110,
+      width: 130,
       render: (score: number | null) =>
-        score === null ? <Text type="secondary">—</Text> : <Text strong>{score}/100</Text>,
+        score === null ? (
+          <Text type="secondary">—</Text>
+        ) : (
+          <div className="screening-average-score">
+            <Progress type="circle" percent={score} size={34} format={() => String(score)} />
+            <Text type="secondary">avg.</Text>
+          </div>
+        ),
     },
     {
       title: 'ACTIONS',
@@ -249,7 +278,7 @@ export default function ScreeningsList({
         dataSource={items}
         loading={loading}
         onRow={(screening) => ({
-          className: 'screening-row-clickable',
+          className: `screening-row-clickable${screening.archived_at ? ' screening-row-archived' : ''}`,
           tabIndex: 0,
           onClick: () => onOpen(screening.id),
           onKeyDown: (event) => {

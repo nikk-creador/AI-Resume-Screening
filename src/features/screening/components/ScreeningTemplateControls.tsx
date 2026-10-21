@@ -12,6 +12,7 @@ import {
   Typography,
 } from 'antd';
 
+import { FileTextOutlined, FolderOpenOutlined, SaveOutlined } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { queryKeys } from '../../../services/api/queryKeys';
@@ -89,23 +90,38 @@ export default function ScreeningTemplateControls({
   return (
     <div className="screening-template-controls">
       {contextHolder}
-      <Button
-        disabled={!canManage || templates.length === 0 || templatesQuery.isLoading}
-        onClick={() => setLoadOpen(true)}
-      >
-        Load template{templates.length ? ` (${templates.length})` : ''}
-      </Button>
-      <Button
-        disabled={!canManage}
-        onClick={() => {
-          setTemplateName(screeningName.trim());
-          setSaveOpen(true);
-        }}
-      >
-        Save as template
-      </Button>
+      <div className="template-control-heading">
+        <span className="template-control-icon" aria-hidden="true">
+          <FileTextOutlined />
+        </span>
+        <div className="template-control-copy">
+          <Text strong>Reusable templates</Text>
+          <Text type="secondary">Start from saved role criteria and scoring settings.</Text>
+        </div>
+        <Tag className="template-count-tag">{templates.length} saved</Tag>
+      </div>
+      <div className="template-control-actions">
+        <Button
+          icon={<FolderOpenOutlined />}
+          disabled={!canManage || templates.length === 0 || templatesQuery.isLoading}
+          onClick={() => setLoadOpen(true)}
+        >
+          Use template
+        </Button>
+        <Button
+          icon={<SaveOutlined />}
+          disabled={!canManage}
+          onClick={() => {
+            setTemplateName(screeningName.trim());
+            setSaveOpen(true);
+          }}
+        >
+          Save current setup
+        </Button>
+      </div>
 
       <Modal
+        className="feature-modal template-modal"
         title="Save reusable screening template"
         open={saveOpen}
         confirmLoading={saveMutation.isPending}
@@ -147,6 +163,7 @@ export default function ScreeningTemplateControls({
       </Modal>
 
       <Modal
+        className="feature-modal template-modal"
         title="Load screening template"
         open={loadOpen}
         confirmLoading={templatesQuery.isFetching}

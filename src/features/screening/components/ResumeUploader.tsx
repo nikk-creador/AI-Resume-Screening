@@ -1,5 +1,7 @@
 import type { UploadProps } from 'antd';
-import { Card, Typography, Upload } from 'antd';
+import { Card, Tag, Typography, Upload } from 'antd';
+
+import { InboxOutlined } from '@ant-design/icons';
 
 import { MAX_FILE_SIZE_BYTES, RESUME_EXTENSIONS } from '../../../constants/screening';
 import { formatFileSize } from '../../../utils/screeningValidation';
@@ -22,10 +24,11 @@ export default function ResumeUploader({
     <Card className="section-card intake-card" variant="borderless">
       <div className="section-heading">
         <div className="section-number">01</div>
-        <div>
+        <div className="upload-heading-copy">
           <Title level={4}>Upload resumes</Title>
           <Text type="secondary">Select one or more files. You can add more before saving.</Text>
         </div>
+        <Tag className="upload-count-tag">{resumeCount} added</Tag>
       </div>
       <Dragger
         className="upload-zone resume-dropzone"
@@ -36,13 +39,13 @@ export default function ResumeUploader({
         beforeUpload={onBeforeUpload}
       >
         <div className="upload-symbol" aria-hidden="true">
-          ↑
+          <InboxOutlined />
         </div>
         <Paragraph className="drop-title">
           <strong>Choose resume files</strong> or drag them here
         </Paragraph>
         <Text type="secondary">
-          PDF, DOC, or DOCX · Up to {formatFileSize(MAX_FILE_SIZE_BYTES)} each · {resumeCount} added
+          PDF, DOC, or DOCX · Up to {formatFileSize(MAX_FILE_SIZE_BYTES)} per file
         </Text>
       </Dragger>
       <div className="privacy-note">
