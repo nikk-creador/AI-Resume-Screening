@@ -30,6 +30,9 @@ ModelT = TypeVar("ModelT", bound=BaseModel)
 
 
 MAX_RESUME_TEXT_CHARS = 40_000
+MAX_RESUME_IMAGE_PIXELS = 20_000_000
+MAX_RESUME_IMAGE_TOTAL_PIXELS = 40_000_000
+MAX_RESUME_IMAGE_PAGES = 20
 logger = logging.getLogger(__name__)
 LANGUAGE_DETECTION_CONFIDENCE = 0.7
 DEFAULT_MODEL = "qwen2.5:1.5b"
@@ -221,18 +224,131 @@ def extract_resume_text(filename: str, content: bytes) -> str:
                 for row in table.rows
                 for cell in row.cells
             )
+            for section in document.sections:
+                for document_part in (section.header, section.footer):
+                    parts.extend(paragraph.text for paragraph in document_part.paragraphs)
+                    parts.extend(
+                        cell.text
+                        for table in document_part.tables
+                        for row in table.rows
+                        for cell in row.cells
+                    )
             text = "\n".join(parts)
+        elif extension in {".png", ".jpg", ".jpeg", ".tif", ".tiff"}:
+            text = extract_image_text(content, extension)
         else:
-            raise ValueError("Use a searchable PDF or DOCX resume.")
+            raise ValueError("Use a PDF, DOCX, PNG, JPG, JPEG, TIF, or TIFF resume.")
     except ValueError:
         raise
     except Exception as error:
-        raise ValueError("Could not read this resume. Use a searchable PDF or DOCX file.") from error
+        raise ValueError(
+            "Could not read this resume. Check that it is a valid PDF, DOCX, or image file."
+        ) from error
 
     readable_text = "\n".join(line.strip() for line in text.splitlines() if line.strip())
     if len(readable_text) < 20:
-        raise ValueError("No readable text found. Scanned PDFs require Tesseract OCR to be installed.")
+        raise ValueError(
+            "No readable text found. Scanned PDFs and image resumes require the Tesseract OCR executable."
+        )
     return readable_text[:MAX_RESUME_TEXT_CHARS]
+
+
+def _preprocess_ocr_image(image):
+    """Improve contrast and binarize a page before passing it to Tesseract."""
+    import cv2
+    import numpy as np
+    from PIL import Image
+
+    rgb = np.asarray(image.convert("RGB"))
+    gray = cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY)
+    height, width = gray.shape
+    if max(height, width) < 2200:
+        scale = min(2200 / max(height, width), 2.0)
+        gray = cv2.resize(
+            gray,
+            (round(width * scale), round(height * scale)),
+            interpolation=cv2.INTER_CUBIC,
+        )
+    gray = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8)).apply(gray)
+    thresholded = cv2.adaptiveThreshold(
+        cv2.GaussianBlur(gray, (3, 3), 0),
+        255,
+        cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+        cv2.THRESH_BINARY,
+        31,
+        11,
+    )
+    return Image.fromarray(thresholded)
+
+
+def _ocr_image(image) -> str:
+    from PIL import Image
+    import pytesseract
+
+    command = os.getenv("TESSERACT_CMD")
+    if command:
+        pytesseract.pytesseract.tesseract_cmd = command
+    try:
+        processed = _preprocess_ocr_image(image)
+    except Exception as error:
+        logger.warning("OpenCV OCR preprocessing failed; using the original image: %s", error)
+        processed = image.convert("RGB") if isinstance(image, Image.Image) else image
+
+    try:
+        text = pytesseract.image_to_string(
+            processed,
+            lang=os.getenv("OCR_LANGUAGES", "eng"),
+            config="--psm 6",
+        ).strip()
+    except pytesseract.TesseractNotFoundError as error:
+        raise ValueError(
+            "OCR needs the Tesseract executable. Install it and set TESSERACT_CMD if it is not on PATH."
+        ) from error
+    except pytesseract.TesseractError as error:
+        raise ValueError(
+            "Tesseract OCR failed. Confirm that OCR_LANGUAGES is installed in Tesseract's tessdata folder."
+        ) from error
+    if len(text) < 20 and processed is not image:
+        text = pytesseract.image_to_string(
+            image,
+            lang=os.getenv("OCR_LANGUAGES", "eng"),
+            config="--psm 6",
+        ).strip()
+    return text
+
+
+def extract_image_text(content: bytes, extension: str) -> str:
+    from PIL import Image, ImageOps
+
+    expected_formats = {
+        ".png": "PNG",
+        ".jpg": "JPEG",
+        ".jpeg": "JPEG",
+        ".tif": "TIFF",
+        ".tiff": "TIFF",
+    }
+    with Image.open(BytesIO(content)) as image:
+        if image.format != expected_formats.get(extension):
+            raise ValueError(
+                "The resume image format does not match a supported PNG, JPEG, or TIFF file."
+            )
+        if image.n_frames > MAX_RESUME_IMAGE_PAGES:
+            raise ValueError(f"Resume images must contain {MAX_RESUME_IMAGE_PAGES} or fewer pages.")
+        image.verify()
+    with Image.open(BytesIO(content)) as image:
+        page_text = []
+        total_pixels = 0
+        for page_index in range(image.n_frames):
+            image.seek(page_index)
+            page_pixels = image.width * image.height
+            total_pixels += page_pixels
+            if page_pixels > MAX_RESUME_IMAGE_PIXELS or total_pixels > MAX_RESUME_IMAGE_TOTAL_PIXELS:
+                raise ValueError(
+                    "Resume images must contain at most 20 megapixels per page and 40 megapixels total."
+                )
+            normalized = ImageOps.exif_transpose(image.copy()).convert("RGB")
+            page_text.append(_ocr_image(normalized))
+        return "\n".join(page_text)
 
 
 def extract_pdf_text(content: bytes) -> str:
@@ -248,20 +364,13 @@ def extract_pdf_text(content: bytes) -> str:
     for page in document:
         page_text = page.get_text("text").strip()
         if len(page_text) < 20 and ocr_pages < int(os.getenv("OCR_MAX_PAGES", "20")):
+            ocr_pages += 1
             try:
                 from PIL import Image
-                import pytesseract
-
-                command = os.getenv("TESSERACT_CMD")
-                if command:
-                    pytesseract.pytesseract.tesseract_cmd = command
                 pixmap = page.get_pixmap(matrix=fitz.Matrix(300 / 72, 300 / 72), alpha=False)
-                page_text = pytesseract.image_to_string(
-                    Image.open(BytesIO(pixmap.tobytes("png"))),
-                    lang=os.getenv("OCR_LANGUAGES", "eng"),
-                ).strip()
-                ocr_pages += 1
-            except (ImportError, OSError, RuntimeError) as error:
+                with Image.open(BytesIO(pixmap.tobytes("png"))) as rendered_page:
+                    page_text = _ocr_image(rendered_page)
+            except (ImportError, OSError, RuntimeError, ValueError) as error:
                 logger.warning("Could not OCR scanned PDF page: %s", error)
         if page_text:
             parts.append(page_text)

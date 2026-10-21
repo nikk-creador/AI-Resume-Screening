@@ -35,6 +35,7 @@ export interface CriterionAssessment {
   priority?: number;
   exact_match?: boolean;
   keyword_score?: number;
+  tfidf_score?: number;
   semantic_score?: number | null;
   cosine_similarity?: number | null;
   reranker_score?: number | null;
@@ -93,6 +94,7 @@ export interface ResumeEvaluation {
     must_have_score: number | null;
     nice_to_have_score: number | null;
     keyword_score?: number | null;
+    tfidf_score?: number | null;
     semantic_score?: number | null;
     mean_cosine_similarity?: number | null;
     skill_score?: number | null;

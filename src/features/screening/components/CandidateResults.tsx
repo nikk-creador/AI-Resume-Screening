@@ -471,6 +471,9 @@ export default function CandidateResults({
                     <Descriptions.Item label="Keyword match">
                       {scoreLabel(matchingDetails?.keyword_score)}
                     </Descriptions.Item>
+                    <Descriptions.Item label="TF-IDF cosine match">
+                      {scoreLabel(matchingDetails?.tfidf_score)}
+                    </Descriptions.Item>
                     <Descriptions.Item label="Semantic match">
                       {scoreLabel(matchingDetails?.semantic_score)}
                     </Descriptions.Item>
@@ -526,6 +529,7 @@ export default function CandidateResults({
                             ? 'Yes'
                             : 'No'}
                         {' · '}Keyword: {scoreLabel(assessment.keyword_score)}
+                        {' · '}TF-IDF: {scoreLabel(assessment.tfidf_score)}
                         {' · '}Semantic: {scoreLabel(assessment.semantic_score)}
                       </Text>
                       <Text type="secondary">

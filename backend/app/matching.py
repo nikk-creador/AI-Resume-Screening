@@ -11,6 +11,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from .text_features import matching_tokens
+
 logger = logging.getLogger(__name__)
 PROTECTED_REQUIREMENT_TERMS = {
     "age", "birth date", "citizenship", "date of birth", "disability", "ethnicity", "gender",
@@ -286,6 +288,36 @@ def _cosine_score_matrix(
         return [[None for _ in passages] for _ in queries]
 
 
+def _tfidf_cosine_score_matrix(
+    queries: list[str], passages: list[str]
+) -> list[list[float | None]]:
+    """Return transparent lexical similarity scores for each query/evidence pair."""
+    if not passages:
+        return [[] for _ in queries]
+    try:
+        import numpy as np
+        from sklearn.feature_extraction.text import TfidfVectorizer
+        from sklearn.metrics.pairwise import cosine_similarity
+
+        vectorizer = TfidfVectorizer(
+            tokenizer=matching_tokens,
+            token_pattern=None,
+            lowercase=False,
+            norm="l2",
+            dtype=np.float32,
+        )
+        document_vectors = vectorizer.fit_transform([*queries, *passages])
+        query_vectors = document_vectors[:len(queries)]
+        passage_vectors = document_vectors[len(queries):]
+        return cosine_similarity(query_vectors, passage_vectors).tolist()
+    except ValueError:
+        # Empty or punctuation-only input has no vocabulary; treat it as no lexical match.
+        return [[0.0 for _ in passages] for _ in queries]
+    except Exception:
+        logger.exception("TF-IDF matching is unavailable; retaining other match signals.")
+        return [[None for _ in passages] for _ in queries]
+
+
 def _cosine_scores(
     query: str, passages: list[str], passage_vectors: list | None = None
 ) -> list[float | None]:
@@ -367,11 +399,18 @@ def score_requirements(
     passage_vectors = _precompute_passage_vectors(passages)
     queries = [f"{requirement.normalized_concept}. {requirement.text}" for requirement in requirements]
     semantic_matrix = _cosine_score_matrix(queries, passages, passage_vectors)
+    tfidf_matrix = _tfidf_cosine_score_matrix(queries, passages)
     scored = []
     for requirement_index, requirement in enumerate(requirements):
         candidates = evidence_items
         query = queries[requirement_index]
         semantic = semantic_matrix[requirement_index]
+        tfidf = tfidf_matrix[requirement_index]
+        available_tfidf = [value for value in tfidf if value is not None]
+        if available_tfidf:
+            tfidf_score = max(available_tfidf)
+        else:
+            tfidf_score = 0.0 if not passages else None
         semantic_components = [
             (value + 1) / 2 if value is not None else None for value in semantic
         ]
@@ -431,6 +470,7 @@ def score_requirements(
                 "score": 0,
                 "exact_match": False,
                 "keyword_score": round(keyword_score * 100),
+                "tfidf_score": round(tfidf_score * 100) if tfidf_score is not None else None,
                 "semantic_score": (
                     round(max((value or 0.0 for value in semantic_components), default=0.0) * 100)
                     if any(value is not None for value in semantic)
@@ -468,6 +508,7 @@ def score_requirements(
                 "score": round(best_score * 100),
                 "exact_match": exact,
                 "keyword_score": round(keyword_score * 100),
+                "tfidf_score": round(tfidf_score * 100) if tfidf_score is not None else None,
                 "semantic_score": round(sem * 100) if sem is not None else None,
                 "cosine_similarity": cosine_similarity,
                 "reranker_score": round(rerank * 100) if rerank is not None else None,
@@ -550,6 +591,7 @@ def score_requirements(
         "score": hybrid_score,
         "research_scores": {
             "keyword_score": rounded_average(scored, "keyword_score"),
+            "tfidf_score": rounded_average(scored, "tfidf_score"),
             "semantic_score": rounded_average(scored, "semantic_score"),
             "mean_cosine_similarity": (
                 round(sum(cosine_values) / len(cosine_values), 3)

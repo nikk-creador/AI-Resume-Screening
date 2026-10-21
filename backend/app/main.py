@@ -82,7 +82,7 @@ from .retention import run_retention_worker
 MAX_FILE_SIZE = 10 * 1024 * 1024
 MAX_JOB_DESCRIPTION_CHARS = 10_000
 MIN_JOB_DESCRIPTION_WORDS = 20
-RESUME_EXTENSIONS = {".pdf", ".docx"}
+RESUME_EXTENSIONS = {".pdf", ".docx", ".png", ".jpg", ".jpeg", ".tif", ".tiff"}
 JOB_EXTENSIONS = {".pdf", ".docx", ".txt"}
 MAX_RESUMES_PER_BATCH = 10
 MAX_EVALUATION_CRITERIA = 20

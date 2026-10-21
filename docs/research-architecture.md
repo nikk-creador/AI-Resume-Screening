@@ -5,9 +5,11 @@
 The screening worker extracts searchable document text and defaults to deterministic local JD/resume rules. Optional structured extraction can be enabled with `AI_EXTRACTION_ENABLED=true`; it only uses loopback Ollama, validates the response schema and exact resume quotes, and falls back to deterministic rules on errors. `backend/app/matching.py` computes scores; an LLM response never supplies a candidate score. Profiles and JD requirements are cached as JSON on their screening/resume records so retries use the same extracted evidence. Recruiters can inspect evidence and record a score override with a reason. Model score, override, reviewer, and timestamp are stored separately; active ranking uses the override when present.
 
 ```text
-PDF/DOCX -> text extraction (+ optional Tesseract OCR)
+PDF/DOCX/image -> PyMuPDF/python-docx/Pillow text extraction
+               -> OpenCV image cleanup + pytesseract/Tesseract OCR for scanned pages
           -> local Qwen structured JD requirements (cached per screening)
           -> local Qwen resume evidence extraction (cached per resume)
+          -> spaCy/NLTK/regex token normalization + TF-IDF cosine diagnostics
           -> alias-aware exact match + multilingual embedding similarity
           -> local cross-encoder evidence reranking (top five evidence excerpts per requirement)
           -> configurable must-have/nice-to-have aggregation
@@ -20,7 +22,8 @@ The present flow is intentionally simpler than extracting names and locations: i
 
 The inspected workstation has a GTX 1650 with 4 GB VRAM. PyTorch, Sentence Transformers, FAISS, and FastEmbed were not installed in the current backend environment. The local Ollama installation has Qwen2.5 7B. The primary implementation keeps Qwen inference in Ollama and runs the smaller ONNX embedding/reranking models on CPU so they do not compete with the 7B model for VRAM.
 
-- Text extraction uses PyMuPDF where installed and retains pypdf as a searchable-PDF fallback. Scanned pages use Tesseract when installed and configured with `TESSERACT_CMD`.
+- Text extraction uses PyMuPDF and python-docx. PNG, JPEG, and TIFF resumes are decoded with Pillow; scanned PDFs and image resumes use OpenCV grayscale/contrast/adaptive-threshold preprocessing before pytesseract invokes the separate Tesseract executable configured with `TESSERACT_CMD` when needed.
+- spaCy supplies model-free multilingual tokenization; NLTK supplies regex-tokenizer fallback, technical-token recovery, and English stemming without downloading corpus data. scikit-learn calculates a per-requirement TF-IDF cosine diagnostic shown next to the other evidence scores. This diagnostic does not add an unvalidated weight to the candidate ranking.
 - Embeddings default to `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` through FastEmbed's quantized ONNX runtime. It supports multilingual sentence similarity and is about 0.22 GB in FastEmbed's supported-model inventory.
 - The optional multilingual cross encoder defaults to `jinaai/jina-reranker-v2-base-multilingual`, about 1.11 GB in FastEmbed's inventory. Its current upstream license is CC-BY-NC-4.0; confirm that license fits the research and deployment use before distributing it. If the model is unavailable, the scorer records null reranker scores and continues with exact/semantic/evidence components.
 - BGE-M3 and BGE reranker v2 M3 remain research comparison candidates. Their larger footprint is not a good default alongside local 7B generation on 4 GB VRAM. CPU ONNX model downloads happen on first use; no resume is sent to a remote inference API.
@@ -47,7 +50,7 @@ Resume evidence JSON (`ResumeEvidence`) deliberately contains an exact quote, se
 
 ## Matching and scoring
 
-Each requirement is matched against each verified resume evidence item. A curated alias map canonicalizes common forms such as ML/machine learning, NLP/natural language processing, Postgres/PostgreSQL, and K8s/Kubernetes before exact matching. Related technologies stay distinct (`React Native` != `React`, `TypeScript` != `JavaScript`, `AWS` != `Azure`). Semantic cosine similarity and cross-encoder scores are separate recorded components. Experience requirements only accept professional/internship evidence; project and course evidence cannot satisfy a stated professional-years minimum. The explanation is currently a deterministic, evidence-grounded summary, avoiding a second LLM call and unsupported prose.
+Each requirement is matched against each verified resume evidence item. A curated alias map canonicalizes common forms such as ML/machine learning, NLP/natural language processing, Postgres/PostgreSQL, and K8s/Kubernetes before exact matching. spaCy/NLTK/regex token normalization feeds a TF-IDF vectorizer whose cosine score is shown per requirement and in candidate score details; the diagnostic is not currently part of the weighted ranking. Related technologies stay distinct (`React Native` != `React`, `TypeScript` != `JavaScript`, `AWS` != `Azure`). Embedding cosine similarity and cross-encoder scores are separate recorded components. Experience requirements only accept professional/internship evidence; project and course evidence cannot satisfy a stated professional-years minimum. The explanation is currently a deterministic, evidence-grounded summary, avoiding a second LLM call and unsupported prose.
 
 Provisional component weights are stored with each evaluation and configurable through `.env` (`MATCH_EXACT`, `MATCH_SEMANTIC`, `MATCH_RERANKER`, `MATCH_EVIDENCE`). Unavailable model components are omitted and remaining weights renormalized. Each requirement's priority (1-5) weights its group average. Default overall score is 80% must-have average and 20% nice-to-have average; if a group is absent, the present group's weight is renormalized. These values are research starting points, not claims of optimality. Tune only on development/validation splits and report results on a held-out set.
 
@@ -68,7 +71,7 @@ Evidence and requirement statuses remain inspectable in the candidate UI. Recrui
 - Structured extraction can miss a requirement or misclassify must-have language; review the extracted JD profile before relying on rankings.
 - The current in-worker reranker runs on each candidate's top five evidence passages. A screening-wide top-K candidate rerank phase is still needed for thousands of resumes.
 - The multilingual Jina reranker carries a non-commercial license and runs on CPU by default.
-- OCR is best-effort and requires a separate Tesseract installation and language packs.
+- OCR is best-effort and requires the separate Tesseract executable plus training data for the selected `OCR_LANGUAGES` (English by default). Image resume uploads are limited to 10 MB, 20 megapixels per page, 40 megapixels total, and 20 TIFF pages.
 - Weight defaults and thresholds are provisional; no labeled evaluation dataset was supplied, so no accuracy metric or calibration claim is available.
 - Resume evidence and extracted profiles are sensitive personal data. The database is local, but at-rest encryption, retention controls and a formal privacy review remain deployment work.
 

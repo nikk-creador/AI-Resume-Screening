@@ -45,7 +45,7 @@ export default function ResumeUploader({
           <strong>Choose resume files</strong> or drag them here
         </Paragraph>
         <Text type="secondary">
-          PDF, DOC, or DOCX · Up to {formatFileSize(MAX_FILE_SIZE_BYTES)} per file
+          PDF, DOCX, PNG, JPG/JPEG, or TIFF · Up to {formatFileSize(MAX_FILE_SIZE_BYTES)} per file
         </Text>
       </Dragger>
       <div className="privacy-note">
