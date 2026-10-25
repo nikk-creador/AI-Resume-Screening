@@ -53,6 +53,22 @@ export function useScreeningDetail(
 export function useScreeningMutations() {
   const queryClient = useQueryClient();
 
+  const duplicateMutation = useMutation({
+    mutationFn: (screening: ScreeningApiRecord) =>
+      createScreening({
+        name: `Copy of ${screening.name}`.slice(0, 160),
+        jobFile: null,
+        jobText: screening.job_description_text,
+        criteria: screening.criteria,
+        jobRequirements: screening.job_requirements ?? [],
+        scoringConfig: screening.scoring_config,
+      }),
+    onSuccess: (screening) => {
+      queryClient.setQueryData(queryKeys.screenings.detail(screening.id), screening);
+      void queryClient.invalidateQueries({ queryKey: queryKeys.screenings.all() });
+    },
+  });
+
   const updateMutation = useMutation({
     mutationFn: (input: {
       screeningId: string;
@@ -72,7 +88,7 @@ export function useScreeningMutations() {
     },
   });
 
-  return { updateMutation, deleteMutation };
+  return { duplicateMutation, updateMutation, deleteMutation };
 }
 
 export function useScreeningActions() {

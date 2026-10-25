@@ -4,6 +4,7 @@ import {
   Button,
   Empty,
   Input,
+  message,
   Modal,
   Popconfirm,
   Progress,
@@ -13,7 +14,7 @@ import {
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 
-import { DeleteOutlined, EditOutlined } from '@ant-design/icons';
+import { CopyOutlined, DeleteOutlined, EditOutlined } from '@ant-design/icons';
 import { useQueryClient } from '@tanstack/react-query';
 
 import { queryKeys } from '../../../services/api/queryKeys';
@@ -48,15 +49,17 @@ export default function ScreeningsList({
   const [editingName, setEditingName] = useState('');
   const [editingJobDescription, setEditingJobDescription] = useState('');
   const [loadingEditId, setLoadingEditId] = useState<string | null>(null);
+  const [duplicatingId, setDuplicatingId] = useState<string | null>(null);
   const [savingEdit, setSavingEdit] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const queryClient = useQueryClient();
+  const [messageApi, contextHolder] = message.useMessage();
   const {
     data,
     isFetching: loading,
     error: listError,
   } = useScreenings((page - 1) * PAGE_SIZE, PAGE_SIZE, search);
-  const { updateMutation, deleteMutation } = useScreeningMutations();
+  const { duplicateMutation, updateMutation, deleteMutation } = useScreeningMutations();
   const items = data?.screenings ?? [];
   const total = data?.total ?? 0;
 
@@ -96,6 +99,24 @@ export default function ScreeningsList({
       setError(getErrorMessage(cause, 'Could not update this screening.'));
     } finally {
       setSavingEdit(false);
+    }
+  };
+
+  const duplicateScreening = async (screeningId: string) => {
+    setDuplicatingId(screeningId);
+    try {
+      const screening = await queryClient.fetchQuery({
+        queryKey: queryKeys.screenings.detail(screeningId),
+        queryFn: () => loadScreening(screeningId),
+      });
+      await duplicateMutation.mutateAsync(screening);
+      setPage(1);
+      setError('');
+      messageApi.success('Screening duplicated. Upload candidates to start a new screening.');
+    } catch (cause: unknown) {
+      setError(getErrorMessage(cause, 'Could not duplicate this screening.'));
+    } finally {
+      setDuplicatingId(null);
     }
   };
 
@@ -189,11 +210,22 @@ export default function ScreeningsList({
     {
       title: 'ACTIONS',
       key: 'action',
-      width: 108,
+      width: 144,
       align: 'right',
       render: (_, screening) =>
         canEdit ? (
           <div className="screening-row-actions">
+            <Button
+              type="text"
+              icon={<CopyOutlined />}
+              title="Duplicate screening"
+              aria-label="Duplicate screening"
+              loading={duplicatingId === screening.id}
+              onClick={(event) => {
+                event.stopPropagation();
+                void duplicateScreening(screening.id);
+              }}
+            />
             {!screening.archived_at && (
               <Button
                 type="text"
@@ -232,6 +264,7 @@ export default function ScreeningsList({
 
   return (
     <section className="screenings-list">
+      {contextHolder}
       <div className="screenings-list-heading">
         <div>
           <Text className="eyebrow">SCREENING HISTORY</Text>
