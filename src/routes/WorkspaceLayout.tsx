@@ -675,7 +675,7 @@ export default function WorkspaceLayout({
                   <ResumeUploader
                     disabled={!activeCompany.permissions.edit || loading || Boolean(screeningId)}
                     onBeforeUpload={addResume}
-                    resumeCount={resumes.length}
+                    resumes={resumes}
                   />
                   {uploadError && (
                     <Text className="validation-error" type="danger">

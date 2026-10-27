@@ -1,0 +1,3 @@
+FROM qwen2.5:0.5b
+ADAPTER ./adapter
+PARAMETER temperature 0

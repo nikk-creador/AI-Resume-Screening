@@ -75,17 +75,21 @@ def load_training_examples(
     return examples
 
 
+def _prompt_content(example: TrainingExample) -> str:
+    return json.dumps(
+        {
+            "task": example.task,
+            "source_text": example.source_text,
+            "instructions": EXTRACTION_PROMPTS[example.task],
+        },
+        ensure_ascii=False,
+    )
+
+
 def _tokenize_examples(examples, tokenizer, max_length: int):
     records = []
     for index, example in enumerate(examples, 1):
-        user_content = json.dumps(
-            {
-                "task": example.task,
-                "source_text": example.source_text,
-                "instructions": EXTRACTION_PROMPTS[example.task],
-            },
-            ensure_ascii=False,
-        )
+        user_content = _prompt_content(example)
         prompt_ids = tokenizer.apply_chat_template(
             [
                 {"role": "system", "content": EXTRACTION_PROMPTS[example.task]},
@@ -119,6 +123,92 @@ def _tokenize_examples(examples, tokenizer, max_length: int):
             }
         )
     return records
+
+
+def score_extraction_predictions(
+    examples: list[TrainingExample], predictions: list[str]
+) -> dict[str, int | float | None]:
+    """Measure output format and evidence quote presence, not extraction relevance."""
+    if len(examples) != len(predictions):
+        raise ValueError("The number of predictions must match the number of examples.")
+
+    parseable_json = 0
+    schema_valid = 0
+    resume_examples = sum(example.task == "resume" for example in examples)
+    job_description_examples = sum(example.task == "job_description" for example in examples)
+    evidence_quotes = 0
+    supported_evidence_quotes = 0
+    for example, prediction in zip(examples, predictions):
+        try:
+            parsed = json.loads(prediction)
+        except (json.JSONDecodeError, TypeError):
+            continue
+        parseable_json += 1
+        try:
+            if example.task == "resume":
+                result = StructuredResume.model_validate(parsed)
+                quotes = [item.evidence for item in result.evidence]
+                evidence_quotes += len(quotes)
+                # Substring support prevents invented quotes but does not judge their relevance.
+                supported_evidence_quotes += sum(
+                    quote.casefold() in example.source_text.casefold() for quote in quotes
+                )
+            else:
+                JobDescriptionProfile.model_validate(parsed)
+        except ValidationError:
+            continue
+        schema_valid += 1
+
+    total = len(examples)
+    return {
+        "examples": total,
+        "parseable_json_examples": parseable_json,
+        "parseable_json_rate": parseable_json / total if total else None,
+        "schema_valid_examples": schema_valid,
+        "schema_valid_rate": schema_valid / total if total else None,
+        "resume_examples": resume_examples,
+        "job_description_examples": job_description_examples,
+        "resume_evidence_quotes": evidence_quotes,
+        "resume_evidence_quotes_supported": supported_evidence_quotes,
+        "resume_evidence_support_rate": (
+            supported_evidence_quotes / evidence_quotes if evidence_quotes else None
+        ),
+    }
+
+
+def _generate_predictions(model, tokenizer, examples: list[TrainingExample], max_length: int) -> list[str]:
+    """Generate deterministic outputs for held-out examples without updating model weights."""
+    import torch
+
+    was_training = model.training
+    model.eval()
+    predictions = []
+    try:
+        for index, example in enumerate(examples, 1):
+            prompt_ids = tokenizer.apply_chat_template(
+                [
+                    {"role": "system", "content": EXTRACTION_PROMPTS[example.task]},
+                    {"role": "user", "content": _prompt_content(example)},
+                ],
+                tokenize=True,
+                add_generation_prompt=True,
+            )
+            max_new_tokens = max_length - len(prompt_ids)
+            if max_new_tokens < 1:
+                raise ValueError(f"Evaluation prompt {index} leaves no room for generated output.")
+            input_ids = torch.tensor([prompt_ids], dtype=torch.long, device=model.device)
+            with torch.inference_mode():
+                generated = model.generate(
+                    input_ids=input_ids,
+                    max_new_tokens=max_new_tokens,
+                    do_sample=False,
+                    pad_token_id=tokenizer.pad_token_id,
+                    eos_token_id=tokenizer.eos_token_id,
+                )
+            predictions.append(tokenizer.decode(generated[0, len(prompt_ids) :], skip_special_tokens=True))
+    finally:
+        model.train(was_training)
+    return predictions
 
 
 def train(
@@ -189,8 +279,8 @@ def train(
     model = get_peft_model(
         model,
         LoraConfig(
-            r=16,
-            lora_alpha=32,
+            r=args.lora_rank,
+            lora_alpha=2 * args.lora_rank,
             lora_dropout=0.05,
             target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
             task_type="CAUSAL_LM",
@@ -267,8 +357,23 @@ def train(
     if test_examples:
         test_dataset = TokenizedRecords(_tokenize_examples(test_examples, tokenizer, args.max_length))
         test_metrics = trainer.evaluate(eval_dataset=test_dataset, metric_key_prefix="test")
-        (args.output_dir.resolve() / "test_metrics.json").write_text(
+        output_dir = args.output_dir.resolve()
+        output_dir.mkdir(parents=True, exist_ok=True)
+        (output_dir / "test_metrics.json").write_text(
             json.dumps(test_metrics, indent=2, default=float) + "\n", encoding="utf-8"
+        )
+        # Keep test generations separate from training and report aggregate metrics only.
+        extraction_metrics = score_extraction_predictions(
+            test_examples,
+            _generate_predictions(model, tokenizer, test_examples, args.max_length),
+        )
+        (output_dir / "extraction_metrics.json").write_text(
+            json.dumps(extraction_metrics, indent=2) + "\n", encoding="utf-8"
+        )
+        print(
+            "Held-out extraction quality: "
+            f"schema-valid={extraction_metrics['schema_valid_rate']}, "
+            f"resume evidence supported={extraction_metrics['resume_evidence_support_rate']}"
         )
 
     adapter_dir = output_dir / "adapter"
@@ -298,6 +403,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--ollama-base-tag", default="qwen2.5:1.5b")
     parser.add_argument("--output-dir", type=Path, default=Path("backend/training/output/recruitai-screening"))
     parser.add_argument("--max-length", type=int, default=2048)
+    parser.add_argument("--lora-rank", type=int, choices=(4, 8, 16, 32), default=16)
     parser.add_argument("--epochs", type=float, default=2)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--validate-only", action="store_true")

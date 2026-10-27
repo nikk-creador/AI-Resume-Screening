@@ -4,14 +4,17 @@ import hashlib
 import hmac
 from io import BytesIO
 import json
+import mimetypes
 import os
 from pathlib import Path
+from pathlib import PurePosixPath
 import re
 import secrets
 from threading import Event, Thread
 from typing import Any, Literal
 from uuid import uuid4
 from urllib.parse import quote
+from zipfile import BadZipFile, ZipFile
 
 from google.auth.exceptions import GoogleAuthError
 import jwt
@@ -80,9 +83,10 @@ from .worker import run_worker
 from .retention import run_retention_worker
 
 MAX_FILE_SIZE = 10 * 1024 * 1024
+MAX_RESUMES_PER_ARCHIVE = 100
 MAX_JOB_DESCRIPTION_CHARS = 10_000
 MIN_JOB_DESCRIPTION_WORDS = 20
-RESUME_EXTENSIONS = {".pdf", ".docx", ".png", ".jpg", ".jpeg", ".tif", ".tiff"}
+RESUME_EXTENSIONS = {".pdf", ".docx", ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".zip"}
 JOB_EXTENSIONS = {".pdf", ".docx", ".txt"}
 MAX_RESUMES_PER_BATCH = 10
 MAX_EVALUATION_CRITERIA = 20
@@ -571,6 +575,81 @@ async def store_resume_uploads(
             status_code=413,
             detail=f"Upload no more than {MAX_RESUMES_PER_BATCH} resumes per batch.",
         )
+    resume_files: list[tuple[str, bytes, str | None]] = []
+    expanded_size = 0
+    for upload in resumes:
+        filename = safe_filename(upload)
+        if Path(filename).suffix.lower() != ".zip":
+            resume_name, content = await read_upload(upload, RESUME_EXTENSIONS - {".zip"})
+            if len(resume_files) >= MAX_RESUMES_PER_BATCH:
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"Upload no more than {MAX_RESUMES_PER_BATCH} resumes per batch.",
+                )
+            resume_files.append((resume_name, content, upload.content_type))
+            expanded_size += len(content)
+        else:
+            _, archive_content = await read_upload(upload, {".zip"})
+            try:
+                with ZipFile(BytesIO(archive_content)) as archive:
+                    archive_resumes = 0
+                    for entry in archive.infolist():
+                        if entry.is_dir():
+                            continue
+                        entry_name = PurePosixPath(entry.filename.replace("\\", "/")).name.strip()
+                        if not entry_name or Path(entry_name).suffix.lower() not in RESUME_EXTENSIONS - {".zip"}:
+                            continue
+                        if entry.flag_bits & 0x1:
+                            raise HTTPException(
+                                status_code=400,
+                                detail=f"{filename}: encrypted files are not supported.",
+                            )
+                        if entry.file_size > MAX_FILE_SIZE:
+                            raise HTTPException(
+                                status_code=413,
+                                detail=f"{entry_name}: files must be 10 MB or smaller.",
+                            )
+                        if archive_resumes >= MAX_RESUMES_PER_ARCHIVE:
+                            raise HTTPException(
+                                status_code=413,
+                                detail=(
+                                    f"{filename}: ZIP archives may contain no more than "
+                                    f"{MAX_RESUMES_PER_ARCHIVE} supported resumes."
+                                ),
+                            )
+                        if expanded_size + entry.file_size > MAX_FILE_SIZE * MAX_RESUMES_PER_BATCH:
+                            raise HTTPException(
+                                status_code=413,
+                                detail=f"{filename}: expanded resume files exceed the batch size limit.",
+                            )
+                        with archive.open(entry) as archived_file:
+                            content = archived_file.read(MAX_FILE_SIZE + 1)
+                        if not content:
+                            raise HTTPException(
+                                status_code=400,
+                                detail=f"{entry_name}: the file is empty.",
+                            )
+                        if len(content) > MAX_FILE_SIZE:
+                            raise HTTPException(
+                                status_code=413,
+                                detail=f"{entry_name}: files must be 10 MB or smaller.",
+                            )
+                        expanded_size += len(content)
+                        archive_resumes += 1
+                        resume_files.append((entry_name, content, mimetypes.guess_type(entry_name)[0]))
+            except HTTPException:
+                raise
+            except (BadZipFile, EOFError, NotImplementedError, OSError, RuntimeError) as error:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"{filename}: could not read this ZIP archive.",
+                ) from error
+            if archive_resumes == 0:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"{filename}: no supported resume files were found in this ZIP archive.",
+                )
+
     if screening.company_id:
         existing_resumes = list(
             db.scalars(
@@ -599,8 +678,7 @@ async def store_resume_uploads(
         if digest:
             existing_by_hash.setdefault(digest, existing_resume)
 
-    for upload in resumes:
-        filename, content = await read_upload(upload, RESUME_EXTENSIONS)
+    for filename, content, content_type in resume_files:
         duplicate_key = (filename.casefold(), len(content))
         content_hash = hashlib.sha256(content).hexdigest()
         duplicate_source = existing_by_hash.get(content_hash)
@@ -617,7 +695,7 @@ async def store_resume_uploads(
         resume = Resume(
             id=str(uuid4()),
             filename=filename,
-            content_type=upload.content_type,
+            content_type=content_type,
             size_bytes=len(content),
             storage_name=storage_name,
             content_sha256=content_hash,

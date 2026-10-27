@@ -296,7 +296,14 @@ export default function ScreeningsList({
           placeholder="Search screening names"
           allowClear
           value={searchInput}
-          onChange={(event) => setSearchInput(event.target.value)}
+          onChange={(event) => {
+            const { value } = event.target;
+            setSearchInput(value);
+            if (!value.trim()) {
+              setPage(1);
+              setSearch('');
+            }
+          }}
           onSearch={(value) => {
             setPage(1);
             setSearch(value);

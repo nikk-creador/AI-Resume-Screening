@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "db:start": "powershell -NoProfile -Command \"$databaseConfig = Select-String -Path .env -Pattern '^DATABASE_URL=' -ErrorAction SilentlyContinue | Select-Object -First 1; $serviceConfig = Select-String -Path .env -Pattern '^POSTGRES_SERVICE_NAME=' -ErrorAction SilentlyContinue | Select-Object -First 1; $serviceName = if ($serviceConfig) { $serviceConfig.Line.Split('=', 2)[1].Trim() } else { 'postgresql-x64-18' }; $skipStart = Select-String -Path .env -Pattern '^START_POSTGRES_SERVICE=false$' -Quiet -ErrorAction SilentlyContinue; if ($databaseConfig -and $databaseConfig.Line.ToLower().Contains('postgres')) { if ($skipStart) { Write-Output 'PostgreSQL service startup is disabled.'; exit 0 }; $service = Get-Service -Name $serviceName -ErrorAction Stop; if ($service.Status -ne 'Running') { Start-Service -Name $serviceName }; Write-Output ('PostgreSQL service ' + $serviceName + ' is running.') } else { Write-Output 'SQLite requires no separate service.' }\"",
-    "backend": "npm run db:start && .\\backend\\.venv\\Scripts\\python.exe -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000 --app-dir backend --env-file .env",
+    "backend": "npm run db:start && .\\backend\\.venv\\Scripts\\python.exe -m uvicorn app.main:app --reload --reload-dir backend/app --host 127.0.0.1 --port 8000 --app-dir backend --env-file .env",
     "backend:worker": ".\\backend\\.venv\\Scripts\\python.exe -m backend.app.worker",
     "build": "vite build",
     "preview": "vite preview",

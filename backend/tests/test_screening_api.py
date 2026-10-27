@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
+from zipfile import ZIP_DEFLATED, ZipFile
 
 from docx import Document
 from fastapi import HTTPException
@@ -90,6 +91,8 @@ class ScreeningApiTests(unittest.TestCase):
                     job_description_text=job_description,
                     job_description_file=None,
                     evaluation_criteria=json.dumps(criteria),
+                    job_requirements="[]",
+                    scoring_config="",
                     db=session,
                     user=self.user,
                 )
@@ -124,6 +127,54 @@ class ScreeningApiTests(unittest.TestCase):
             screening = session.get(Screening, created["id"])
             self.assertEqual(screening.owner_id, self.user.id)
 
+    def test_zip_resume_upload_expands_supported_files_without_extracting_paths(self):
+        job_description = (
+            "Seeking an experienced software engineer to design build test and maintain scalable "
+            "backend applications with Python APIs and database systems across cloud infrastructure "
+            "and collaborative product teams."
+        )
+        archive_content = BytesIO()
+        with ZipFile(archive_content, "w", ZIP_DEFLATED) as archive:
+            archive.writestr("candidate-a/resume.docx", b"first resume")
+            archive.writestr("../resume.pdf", b"second resume")
+            for index in range(10):
+                archive.writestr(f"candidate-{index}/resume-{index}.docx", f"resume {index}".encode())
+            archive.writestr("readme.txt", b"not a resume")
+        with Session(self.engine) as session, patch(
+            "backend.app.main.UPLOAD_DIR", self.storage_dir
+        ):
+            created = asyncio.run(
+                create_screening(
+                    screening_name="ZIP upload example",
+                    resumes=[],
+                    job_description_text=job_description,
+                    job_description_file=None,
+                    evaluation_criteria="[]",
+                    job_requirements="[]",
+                    scoring_config="",
+                    db=session,
+                    user=self.user,
+                )
+            )
+            upload = UploadFile(
+                filename="resumes.zip",
+                file=BytesIO(archive_content.getvalue()),
+                headers={"content-type": "application/zip"},
+            )
+            saved = asyncio.run(
+                upload_screening_resumes(
+                    screening_id=created["id"],
+                    resumes=[upload],
+                    db=session,
+                    user=self.user,
+                )
+            )
+
+        filenames = {resume["filename"] for resume in saved["resumes"]}
+        self.assertEqual(len(filenames), 12)
+        self.assertIn("resume.pdf", filenames)
+        self.assertEqual(len(list(self.storage_dir.iterdir())), 12)
+
     def test_screening_can_be_created_without_optional_criteria(self):
         job_description = (
             "Seeking an experienced software engineer to design build test and maintain scalable "
@@ -138,6 +189,8 @@ class ScreeningApiTests(unittest.TestCase):
                     job_description_text=job_description,
                     job_description_file=None,
                     evaluation_criteria="[]",
+                    job_requirements="[]",
+                    scoring_config="",
                     db=session,
                     user=self.user,
                 )

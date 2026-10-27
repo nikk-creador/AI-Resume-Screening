@@ -45,9 +45,11 @@ import {
   displayName,
   formatFileSize,
   formatLocalDateTime,
+  getExtension,
 } from '../../../utils/screeningValidation';
 
 const { Text, Title } = Typography;
+
 const pipelineStageOptions: { value: CandidatePipelineStage; label: string }[] = [
   { value: 'new', label: 'New' },
   { value: 'in_review', label: 'In Review' },
@@ -601,6 +603,8 @@ export default function CandidateResults({
       width: 175,
       render: (_, resume) => {
         const status = resume.evaluation?.status ?? (resume.id ? 'stored' : 'ready');
+        const zipPendingExpansion =
+          !resume.id && resume.file !== null && getExtension(resume.name) === 'zip';
         const statusColor =
           status === 'completed'
             ? COLORS.success
@@ -623,7 +627,9 @@ export default function CandidateResults({
                       ? 'Queued for parsing'
                       : resume.id
                         ? 'Stored'
-                        : 'Ready to upload'}
+                        : zipPendingExpansion
+                          ? 'ZIP — save to expand'
+                          : 'Ready to upload'}
           </Tag>
         );
       },

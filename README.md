@@ -39,6 +39,8 @@ To start only PostgreSQL, use `npm run db:start`. Set `POSTGRES_SERVICE_NAME` in
 
 The API docs are at `http://127.0.0.1:8000/docs`. Configure `DATABASE_URL` in the root `.env` file. The default database is local SQLite; PostgreSQL uses a `postgresql+psycopg2://...` URL. The backend reads the root `.env`, not `.env.example`; restart it after changing configuration.
 
+Backend auto-reload watches `backend/app` only, so changes in virtual-environment packages do not restart the server.
+
 The backend installs spaCy, NLTK, scikit-learn, and headless OpenCV from `backend/requirements.txt`. spaCy's blank multilingual tokenizer and NLTK token normalization need no downloaded language corpus or model. Tesseract is a separate OCR executable: install the Tesseract engine with English training data, then set `TESSERACT_CMD` in `.env` if its executable is not on `PATH` (for example, `C:\Program Files\Tesseract-OCR\tesseract.exe`). The [Tesseract installation guide](https://github.com/tesseract-ocr/tessdoc/blob/main/Installation.md) lists platform installers and language data.
 
 ## Evaluation model and matching
