@@ -84,6 +84,7 @@ class WorkerTests(unittest.TestCase):
             ],
             "matching_method": "test",
             "weights": {},
+            "research_scores": {},
             "must_have_score": 86,
             "nice_to_have_score": None,
         }
@@ -116,6 +117,7 @@ class WorkerTests(unittest.TestCase):
             "assessments": [],
             "matching_method": "test",
             "weights": {},
+            "research_scores": {},
             "must_have_score": 86,
             "nice_to_have_score": None,
         }

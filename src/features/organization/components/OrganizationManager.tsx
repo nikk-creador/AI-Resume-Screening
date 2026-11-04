@@ -151,11 +151,37 @@ export default function OrganizationManager({
       });
     }
   }, [retentionForm, retentionQuery.data]);
+  useEffect(() => {
+    if (!open) return;
+    const queryErrors = [
+      [membersQuery.error, 'Could not load company members.'],
+      [invitationsQuery.error, 'Could not load company invitations.'],
+      [auditQuery.error, 'Could not load the company audit log.'],
+      [retentionQuery.error, 'Could not load the retention policy.'],
+    ] as const;
+    for (const [error, fallback] of queryErrors) {
+      if (error) messageApi.error(getErrorMessage(error, fallback));
+    }
+  }, [
+    auditQuery.error,
+    invitationsQuery.error,
+    membersQuery.error,
+    messageApi,
+    open,
+    retentionQuery.error,
+  ]);
   const organizationCompaniesQuery = useQuery({
     queryKey: queryKeys.organization.companies(activeCompany.organization_id),
     queryFn: () => listOrganizationCompanies(activeCompany.organization_id),
     enabled: open && activeCompany.organization_role === 'admin',
   });
+  useEffect(() => {
+    if (open && organizationCompaniesQuery.error) {
+      messageApi.error(
+        getErrorMessage(organizationCompaniesQuery.error, 'Could not load organization companies.'),
+      );
+    }
+  }, [messageApi, open, organizationCompaniesQuery.error]);
   const orgCompanies = organizationCompaniesQuery.data
     ? organizationCompaniesQuery.data.filter((company) => company.is_active)
     : companies
@@ -596,16 +622,13 @@ export default function OrganizationManager({
               them available for review; delete permanently removes the records and files.
             </Text>
             {retentionQuery.error && (
-              <Alert
+              <Button
                 style={{ marginTop: 12 }}
-                type="error"
-                showIcon
-                message={getErrorMessage(
-                  retentionQuery.error,
-                  'Could not load the retention policy.',
-                )}
-                action={<Button onClick={() => void retentionQuery.refetch()}>Retry</Button>}
-              />
+                type="link"
+                onClick={() => void retentionQuery.refetch()}
+              >
+                Retry loading the retention policy
+              </Button>
             )}
             <Form
               form={retentionForm}

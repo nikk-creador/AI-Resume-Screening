@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Alert,
   Button,
@@ -63,6 +63,11 @@ export default function ScreeningTemplateControls({
     queryFn: listScreeningTemplates,
     enabled: canManage && Boolean(companyId),
   });
+  useEffect(() => {
+    if (loadOpen && templatesQuery.error) {
+      messageApi.error(getErrorMessage(templatesQuery.error, 'Could not load templates.'));
+    }
+  }, [loadOpen, messageApi, templatesQuery.error]);
   const saveMutation = useMutation({
     mutationFn: createScreeningTemplate,
     onSuccess: async () => {
@@ -186,12 +191,9 @@ export default function ScreeningTemplateControls({
             />
           )}
           {templatesQuery.error && (
-            <Alert
-              type="error"
-              showIcon
-              title={getErrorMessage(templatesQuery.error, 'Could not load templates.')}
-              action={<Button onClick={() => void templatesQuery.refetch()}>Retry</Button>}
-            />
+            <Button type="link" onClick={() => void templatesQuery.refetch()}>
+              Retry loading templates
+            </Button>
           )}
           <Select
             value={selectedTemplateId}

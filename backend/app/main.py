@@ -51,7 +51,13 @@ from .database import (
     get_db,
     migrate_screening_schema,
 )
-from .evaluation import EvaluationCriterion, extract_pdf_text, suggest_criteria
+from .evaluation import (
+    EvaluationCriterion,
+    extract_pdf_text,
+    extract_resume_sections,
+    extract_resume_text,
+    suggest_criteria,
+)
 from .matching import JobRequirement, MatchingWeights, default_matching_weights
 from .models import (
     AuditLog,
@@ -70,6 +76,7 @@ from .models import (
     ScreeningTemplate,
     User,
 )
+from .ranking_metrics import RANKING_METRICS_K, calculate_ranking_metrics
 from .tenancy import (
     company_access_payload,
     create_default_tenant,
@@ -170,6 +177,10 @@ class ScreeningTemplateRequest(BaseModel):
 class ReviewOverrideRequest(BaseModel):
     score: int = Field(ge=0, le=100)
     note: str = Field(min_length=3, max_length=2000)
+
+
+class RelevanceLabelRequest(BaseModel):
+    relevance: int | None = Field(default=None, ge=0, le=3)
 
 
 class CandidateAssignmentRequest(BaseModel):
@@ -447,8 +458,36 @@ def register_account(payload: RegisterRequest, db: Session = Depends(get_db)) ->
         "action_url": action_url if APP_ENV != "production" else None,
     }
 
-def screening_payload(screening: Screening) -> dict:
-    return {
+def screening_payload(screening: Screening, db: Session) -> dict:
+    profiles_updated = False
+    for resume in screening.resumes:
+        if resume.evaluation is None or resume.evaluation.status != "completed":
+            continue
+        profile_data = dict(resume.structured_profile or {})
+        if "education" in profile_data and "work_experience" in profile_data:
+            continue
+        try:
+            resume_text = extract_resume_text(
+                resume.filename,
+                (UPLOAD_DIR / resume.storage_name).read_bytes(),
+            )
+        except (OSError, ValueError):
+            continue
+        education, work_experience = extract_resume_sections(resume_text)
+        profile_data.setdefault("evidence", [])
+        if not profile_data.get("education"):
+            profile_data["education"] = education
+        if not profile_data.get("work_experience"):
+            profile_data["work_experience"] = work_experience
+        resume.structured_profile = profile_data
+        profiles_updated = True
+
+    completed_evaluations = [
+        resume.evaluation
+        for resume in screening.resumes
+        if resume.evaluation is not None and resume.evaluation.status == "completed"
+    ]
+    payload = {
         "id": screening.id,
         "name": screening.name,
         "created_at": iso_utc(screening.created_at),
@@ -457,6 +496,14 @@ def screening_payload(screening: Screening) -> dict:
         "job_description_filename": screening.job_description_filename,
         "job_requirements": screening.job_requirements,
         "scoring_config": screening.scoring_config,
+        "ranking_metrics": calculate_ranking_metrics(
+            [
+                (evaluation.score, evaluation.reviewer_relevance)
+                for evaluation in completed_evaluations
+                if evaluation.score is not None
+            ],
+            k=RANKING_METRICS_K,
+        ),
         "criteria": screening.rubric.criteria if screening.rubric else [],
         "resumes": [
             {
@@ -471,6 +518,7 @@ def screening_payload(screening: Screening) -> dict:
                 "duplicate_of_resume_id": resume.duplicate_of_resume_id,
                 "duplicate_of_filename": resume.duplicate_of_filename,
                 "duplicate_reason": resume.duplicate_reason,
+                "structured_profile": resume.structured_profile,
                 "evaluation": (
                     {
                         "status": resume.evaluation.status,
@@ -489,6 +537,9 @@ def screening_payload(screening: Screening) -> dict:
                         "reviewer_override_note": resume.evaluation.reviewer_override_note,
                         "reviewer_id": resume.evaluation.reviewer_id,
                         "reviewer_updated_at": iso_utc(resume.evaluation.reviewer_updated_at) if resume.evaluation.reviewer_updated_at else None,
+                        "reviewer_relevance": resume.evaluation.reviewer_relevance,
+                        "relevance_reviewer_id": resume.evaluation.relevance_reviewer_id,
+                        "relevance_updated_at": iso_utc(resume.evaluation.relevance_updated_at) if resume.evaluation.relevance_updated_at else None,
                         "error_message": resume.evaluation.error_message,
                         "attempts": resume.evaluation.attempts,
                         "updated_at": iso_utc(resume.evaluation.updated_at),
@@ -500,6 +551,9 @@ def screening_payload(screening: Screening) -> dict:
             for resume in screening.resumes
             ],
             }
+    if profiles_updated:
+        db.commit()
+    return payload
 
 
 def parse_evaluation_criteria(value: str) -> list[dict]:
@@ -1774,7 +1828,7 @@ async def create_screening(
             )
         db.commit()
         db.refresh(screening)
-        return screening_payload(screening)
+        return screening_payload(screening, db)
     except HTTPException:
         db.rollback()
         for file_path in uploaded_paths:
@@ -2105,7 +2159,7 @@ async def upload_screening_resumes(
                 details={"count": len(uploaded_resume_ids), "resume_ids": uploaded_resume_ids},
             )
         db.commit()
-        return screening_payload(screening)
+        return screening_payload(screening, db)
     except HTTPException:
         db.rollback()
         for file_path in uploaded_paths:
@@ -2135,7 +2189,7 @@ def get_screening(
     )
     if screening is None:
         raise HTTPException(status_code=404, detail="Screening not found.")
-    return screening_payload(screening)
+    return screening_payload(screening, db)
 
 
 @app.patch("/api/screenings/{screening_id}", tags=["screenings"])
@@ -2232,7 +2286,7 @@ def update_screening(
     db.commit()
     if previous_job_file is not None:
         previous_job_file.unlink(missing_ok=True)
-    return screening_payload(screening)
+    return screening_payload(screening, db)
 
 
 @app.delete("/api/screenings/{screening_id}", tags=["screenings"])
@@ -2344,6 +2398,50 @@ def review_resume_score(
         "score": evaluation.reviewer_override_score,
         "reviewer_note": evaluation.reviewer_override_note,
         "reviewer_updated_at": iso_utc(evaluation.reviewer_updated_at),
+    }
+
+
+@app.patch("/api/resumes/{resume_id}/relevance", tags=["resumes"])
+def review_resume_relevance(
+    resume_id: str,
+    payload: RelevanceLabelRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_company_user),
+):
+    require_company_permission(user, "can_edit")
+    evaluation = db.scalar(
+        select(ResumeEvaluation)
+        .join(Resume)
+        .join(Screening)
+        .where(Resume.id == resume_id, screening_company_scope(user))
+    )
+    if evaluation is None:
+        raise HTTPException(status_code=404, detail="Candidate evaluation not found.")
+    require_active_resume(evaluation.resume)
+    if evaluation.status != "completed":
+        raise HTTPException(status_code=409, detail="Wait for evaluation to complete before rating its relevance.")
+    evaluation.reviewer_relevance = payload.relevance
+    evaluation.relevance_reviewer_id = user.id if payload.relevance is not None else None
+    evaluation.relevance_updated_at = datetime.now(timezone.utc) if payload.relevance is not None else None
+    active_company_id = getattr(user, "active_company_id", None)
+    company = db.get(Company, active_company_id) if active_company_id else None
+    if company is not None:
+        write_audit_log(
+            db,
+            user=user,
+            company=company,
+            action="candidate.relevance_rated",
+            resource_type="resume",
+            resource_id=resume_id,
+            details={"relevance": payload.relevance},
+        )
+    db.commit()
+    return {
+        "resume_id": resume_id,
+        "relevance": evaluation.reviewer_relevance,
+        "relevance_updated_at": (
+            iso_utc(evaluation.relevance_updated_at) if evaluation.relevance_updated_at else None
+        ),
     }
 
 

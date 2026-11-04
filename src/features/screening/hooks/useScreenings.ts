@@ -7,8 +7,9 @@ import {
   deleteScreening,
   listScreenings,
   loadScreening,
-  retryScreening,
   retryResume,
+  retryScreening,
+  reviewResumeRelevance,
   reviewResumeScore,
   stopScreening,
   suggestScreeningCriteria,
@@ -171,6 +172,21 @@ export function useScreeningActions() {
       }
     },
   });
+  const relevanceMutation = useMutation({
+    mutationFn: ({
+      resumeId,
+      relevance,
+    }: {
+      resumeId: string;
+      relevance: number | null;
+      screeningId: string | null;
+    }) => reviewResumeRelevance(resumeId, relevance),
+    onSuccess: (_result, { screeningId }) => {
+      if (screeningId) {
+        invalidateScreening(screeningId);
+      }
+    },
+  });
   const pipelineStageMutation = useMutation({
     mutationFn: ({
       resumeId,
@@ -196,6 +212,7 @@ export function useScreeningActions() {
     retryResume: retryResumeMutation.mutateAsync,
     stop: stopMutation.mutateAsync,
     review: reviewMutation.mutateAsync,
+    reviewRelevance: relevanceMutation.mutateAsync,
     updatePipelineStage: pipelineStageMutation.mutateAsync,
     suggestCriteria: suggestCriteriaMutation.mutateAsync,
   };

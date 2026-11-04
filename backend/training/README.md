@@ -1,6 +1,31 @@
 # Local Model Fine-Tuning
 
-Core resume extraction and matching run locally with deterministic evidence rules and the configured FastEmbed embedding model; neither needs an LLM or an API key. Ollama is optional and used only for generation features such as the service probe and preferred-criteria suggestions. Fine-tuning teaches structured resume evidence and JD requirement extraction; it does not train on hiring outcomes or predict scores. On the inspected 4 GB GTX 1650, the training default is Qwen2.5 1.5B with a 2K context. No trained weights are included: a permissioned, recruiter-reviewed extraction dataset is required. The trainer requires 100 examples by default and refuses unreviewed examples.
+Core resume extraction and matching run locally with deterministic evidence rules and the configured FastEmbed embedding model; neither needs an LLM or an API key. Ollama is optional and used only for generation features such as the service probe and preferred-criteria suggestions. The QLoRA workflow below tunes structured extraction. A separate encoder workflow uses the checked-in JD/resume pairs and triplets to improve semantic ranking; neither workflow predicts hiring outcomes. Training artifacts are local and ignored by Git.
+
+## Ranking encoder fine-tuning
+
+The encoder trainer fine-tunes `sentence-transformers/all-mpnet-base-v2` by default. `backend/pairs.jsonl` contains binary job/resume relevance labels, while `backend/triplets.jsonl` contains job, relevant resume, and hard-negative resume examples. The trainer uses Multiple Negatives Ranking Loss (MNRL) on positive pairs, treating other pairs in each batch as in-batch negatives, plus explicit hard-triplet loss. Negative-labeled pairs are excluded from MNRL; hard negatives are learned from the triplet dataset. Splits are grouped by job description, and the trainer keeps the base weights if validation quality does not improve. Its test report includes pair AUC, Precision@5, Recall@5, NDCG@5, and triplet accuracy; these metrics validate ranking against these dataset labels and do not establish hiring quality.
+
+Production matching uses requirement-level semantic embeddings blended with BM25 keyword relevance and exact concept matches. Configure `MATCH_SEMANTIC` and `MATCH_BM25` in `.env` to adjust their relative contribution; exact certification/tool terms are preserved as a lexical signal rather than relying on semantic similarity alone.
+
+Install CUDA-enabled PyTorch for the local GPU, then install the training requirements and validate the data split before training:
+
+```bash
+python -m pip install -r backend/requirements.txt
+python -m pip install -r backend/requirements-training.txt
+python -m backend.training.finetune_encoder --validate-only
+python -m backend.training.finetune_encoder --epochs 1
+```
+
+The MPNet encoder is larger and slower than MiniLM and may require reducing `--batch-size` or `--max-seq-length` on GPUs with limited memory. The trainer defaults to a 2-sample batch, gradient accumulation, a 256-token limit, and one epoch. `--device cpu` is available for a slow CPU run. It writes `metrics.json`, a Sentence Transformers checkpoint, and a FastEmbed-compatible ONNX export under `backend/training/output/resume-encoder`.
+
+After reviewing the test report, activate the exported encoder in the ignored root `.env` and restart the backend:
+
+```dotenv
+MATCH_EMBEDDING_PATH=backend/training/output/resume-encoder/fastembed
+```
+
+The general application default `MATCH_EMBEDDING_MODEL=sentence-transformers/all-MiniLM-L6-v2` stays unchanged until you explicitly set `MATCH_EMBEDDING_PATH`; FastEmbed loads the fine-tuned MPNet ONNX files from the local path.
 
 ## Dataset
 

@@ -11,6 +11,7 @@ export interface ResumeRow {
   duplicateOfResumeId: string | null;
   duplicateOfFilename: string | null;
   duplicateReason: string | null;
+  structuredProfile?: StructuredResumeProfile | null;
   archivedAt: string | null;
   evaluation: ResumeEvaluation | null;
 }
@@ -24,7 +25,7 @@ export interface EvaluationCriterion {
   weight: number;
 }
 
-export interface CriterionAssessment {
+interface CriterionAssessment {
   criterion_id: string;
   name: string;
   required: boolean;
@@ -35,6 +36,7 @@ export interface CriterionAssessment {
   priority?: number;
   exact_match?: boolean;
   keyword_score?: number;
+  bm25_score?: number;
   tfidf_score?: number;
   semantic_score?: number | null;
   cosine_similarity?: number | null;
@@ -69,7 +71,7 @@ export interface ScreeningTemplate {
   created_at: string;
 }
 
-export interface ResumeEvaluation {
+interface ResumeEvaluation {
   status: 'queued' | 'processing' | 'completed' | 'failed' | 'stopped';
   score: number | null;
   model_score?: number | null;
@@ -77,6 +79,9 @@ export interface ResumeEvaluation {
   reviewer_override_note?: string | null;
   reviewer_id?: string | null;
   reviewer_updated_at?: string | null;
+  reviewer_relevance?: number | null;
+  relevance_reviewer_id?: string | null;
+  relevance_updated_at?: string | null;
   job_match_score: number | null;
   preferred_score: number | null;
   bonus_points: number | null;
@@ -94,6 +99,7 @@ export interface ResumeEvaluation {
     must_have_score: number | null;
     nice_to_have_score: number | null;
     keyword_score?: number | null;
+    bm25_score?: number | null;
     tfidf_score?: number | null;
     semantic_score?: number | null;
     mean_cosine_similarity?: number | null;
@@ -105,20 +111,20 @@ export interface ResumeEvaluation {
   } | null;
 }
 
-export interface RequiredJobCheck {
+interface RequiredJobCheck {
   name: string;
   met: boolean;
   evidence: string[];
 }
 
-export interface StoredJobFile {
+interface StoredJobFile {
   name: string;
   stored: true;
 }
 
 export type JobDescriptionFile = File | StoredJobFile;
 
-export interface ResumeApiRecord {
+interface ResumeApiRecord {
   id: string;
   filename: string;
   size_bytes: number;
@@ -129,8 +135,29 @@ export interface ResumeApiRecord {
   duplicate_of_resume_id: string | null;
   duplicate_of_filename: string | null;
   duplicate_reason: string | null;
+  structured_profile: StructuredResumeProfile | null;
   archived_at: string | null;
   evaluation: ResumeEvaluation | null;
+}
+
+interface StructuredResumeEvidence {
+  normalized_concept: string;
+  evidence: string;
+  section: string;
+  source_type:
+    | 'professional'
+    | 'internship'
+    | 'academic_project'
+    | 'personal_project'
+    | 'certification'
+    | 'course'
+    | 'other';
+}
+
+interface StructuredResumeProfile {
+  evidence: StructuredResumeEvidence[];
+  education?: string[];
+  work_experience?: string[];
 }
 
 export interface ScreeningApiRecord {
@@ -143,7 +170,21 @@ export interface ScreeningApiRecord {
   criteria: EvaluationCriterion[];
   job_requirements: JobRequirement[] | null;
   scoring_config: Record<string, number> | null;
+  ranking_metrics: ScreeningRankingMetrics;
   resumes: ResumeApiRecord[];
+}
+
+export interface ScreeningRankingMetrics {
+  k: number;
+  effective_k: number;
+  completed_count: number;
+  labeled_count: number;
+  unlabeled_count: number;
+  qualified_count: number;
+  qualified_threshold: number;
+  precision: number | null;
+  recall: number | null;
+  ndcg: number | null;
 }
 
 export interface ScreeningListItem {

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Alert, Button, Card, Form, Input, Typography } from 'antd';
+import { Alert, Button, Card, Form, Input, message, Typography } from 'antd';
 import { Link, useSearchParams } from 'react-router-dom';
 
 import {
@@ -71,11 +71,16 @@ export default function SignIn({
   const [actionUrl, setActionUrl] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [googleButtonWidth, setGoogleButtonWidth] = useState(320);
+  const [messageApi, contextHolder] = message.useMessage();
   const googleButtonRef = useRef<HTMLDivElement>(null);
   const visibleError = submitError || error;
   const token = searchParams.get('token') ?? '';
   const busy = loading || submitting;
   const demoLogin = mode === 'signin' ? __DEMO_LOGIN__ : null;
+
+  useEffect(() => {
+    if (visibleError) messageApi.error(visibleError);
+  }, [messageApi, visibleError]);
 
   useEffect(() => {
     const container = googleButtonRef.current;
@@ -234,6 +239,7 @@ export default function SignIn({
 
         <section className="auth-card-wrap" aria-labelledby="signin-heading">
           <Card className="auth-card" bordered={false}>
+            {contextHolder}
             <div className="auth-card-heading">
               <span className="auth-card-icon">
                 <LockOutlined />
@@ -264,17 +270,6 @@ export default function SignIn({
                 description={
                   actionUrl ? <a href={actionUrl}>Open your secure action link</a> : undefined
                 }
-              />
-            )}
-            {visibleError && (
-              <Alert
-                className="auth-error"
-                type="error"
-                showIcon
-                role="alert"
-                title={visibleError}
-                closable
-                onClose={clearSignInError}
               />
             )}
             {mode === 'signin' && (

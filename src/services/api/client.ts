@@ -1,6 +1,6 @@
 import { API_BASE_URL } from './config';
 
-export const ACTIVE_COMPANY_STORAGE_KEY = 'recruitai:active-company-id';
+const ACTIVE_COMPANY_STORAGE_KEY = 'recruitai:active-company-id';
 
 export function getActiveCompanyId(): string | null {
   return typeof window === 'undefined'

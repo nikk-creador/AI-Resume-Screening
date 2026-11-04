@@ -6,6 +6,7 @@ import secrets
 from pathlib import Path
 from uuid import uuid4
 
+from dotenv import load_dotenv
 import jwt
 from sendgrid import SendGridAPIClient
 from sendgrid.helpers.mail import Content, Email, Mail, To
@@ -18,6 +19,8 @@ from sqlalchemy.orm import Session
 
 from .database import get_db
 from .models import Screening, User
+
+load_dotenv(Path(__file__).resolve().parents[2] / ".env.local")
 
 SESSION_COOKIE = "recruitai_session"
 SESSION_TTL_SECONDS = 60 * 60 * 8

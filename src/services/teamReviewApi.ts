@@ -1,12 +1,12 @@
 import { apiRequest as request } from './api/client';
 
-export interface CompanyReviewer {
+interface CompanyReviewer {
   user_id: string;
   full_name: string;
   email: string;
 }
 
-export interface CandidateAssignmentRecord {
+interface CandidateAssignmentRecord {
   reviewer_id: string;
   full_name: string;
   email: string;
@@ -14,7 +14,7 @@ export interface CandidateAssignmentRecord {
   assigned_at: string;
 }
 
-export interface CandidateTeamReviewRecord {
+interface CandidateTeamReviewRecord {
   reviewer_id: string;
   full_name: string;
   score: number;
@@ -23,7 +23,7 @@ export interface CandidateTeamReviewRecord {
   updated_at: string;
 }
 
-export interface CandidateTeamReviewSummary {
+interface CandidateTeamReviewSummary {
   resume_id: string;
   assignments: CandidateAssignmentRecord[];
   reviews: CandidateTeamReviewRecord[];

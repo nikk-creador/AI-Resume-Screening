@@ -72,6 +72,16 @@ export default function TeamReviewPanel({
     queryFn: () => listCompanyReviewers(companyId),
     enabled: open && canAssign && Boolean(companyId),
   });
+  useEffect(() => {
+    if (open && reviewsQuery.error) {
+      messageApi.error(getErrorMessage(reviewsQuery.error, 'Could not load team reviews.'));
+    }
+  }, [messageApi, open, reviewsQuery.error]);
+  useEffect(() => {
+    if (open && reviewersQuery.error) {
+      messageApi.error(getErrorMessage(reviewersQuery.error, 'Could not load company reviewers.'));
+    }
+  }, [messageApi, open, reviewersQuery.error]);
   const teamReview = reviewsQuery.data?.find((item) => item.resume_id === selectedResumeId);
   const selectedResume = storedResumes.find((resume) => resume.id === selectedResumeId);
   const canEditSelectedResume = Boolean(
@@ -179,23 +189,17 @@ export default function TeamReviewPanel({
           </div>
         )}
         {reviewsQuery.error && (
-          <Alert
-            type="error"
-            showIcon
-            title={getErrorMessage(reviewsQuery.error, 'Could not load team reviews.')}
-            action={<Button onClick={() => void reviewsQuery.refetch()}>Retry</Button>}
-          />
+          <Button type="link" onClick={() => void reviewsQuery.refetch()}>
+            Retry loading team reviews
+          </Button>
         )}
         {canAssignSelectedResume && (
           <Card className="review-assignment-card" size="small" title="Assigned reviewers">
             <Space direction="vertical" style={{ width: '100%' }}>
               {reviewersQuery.error && (
-                <Alert
-                  type="error"
-                  showIcon
-                  title={getErrorMessage(reviewersQuery.error, 'Could not load company reviewers.')}
-                  action={<Button onClick={() => void reviewersQuery.refetch()}>Retry</Button>}
-                />
+                <Button type="link" onClick={() => void reviewersQuery.refetch()}>
+                  Retry loading reviewers
+                </Button>
               )}
               <Select
                 mode="multiple"

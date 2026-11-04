@@ -15,7 +15,6 @@ _TECH_TOKEN_PATTERN = re.compile(
 def _spacy_tokenizer():
     import spacy
 
-    # A blank pipeline provides tokenization without downloading model weights.
     return spacy.blank("xx")
 
 
@@ -33,13 +32,10 @@ def matching_tokens(text: str) -> list[str]:
         doc = _spacy_tokenizer()(text)
         tokens = [token.text.casefold() for token in doc if not token.is_space and not token.is_punct]
     except Exception:
-        # NLTK's regex tokenizer remains usable even if the spaCy package cannot load.
         tokenizer, _ = _nltk_tools()
         tokens = [token.casefold() for token in tokenizer.tokenize(text)]
 
     tokenizer, stemmer = _nltk_tools()
-    # spaCy separates punctuation in terms such as C++, .NET, and CI/CD. Re-add
-    # those complete terms so technical skills remain searchable as one token.
     technical_tokens = [
         token.casefold()
         for token in tokenizer.tokenize(text)

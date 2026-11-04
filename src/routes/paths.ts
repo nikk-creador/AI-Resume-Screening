@@ -1,5 +1,6 @@
 export const routes = {
   home: '/',
+  publicHome: '/welcome',
   signIn: '/signin',
   register: '/register',
   forgotPassword: '/forgot-password',
@@ -12,7 +13,8 @@ export const routes = {
   notFound: '*',
 } as const;
 
-export const publicAuthPaths: string[] = [
+export const publicPaths: string[] = [
+  routes.publicHome,
   routes.signIn,
   routes.register,
   routes.forgotPassword,

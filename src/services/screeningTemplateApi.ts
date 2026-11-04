@@ -1,7 +1,7 @@
 import { apiRequest as request } from './api/client';
 import type { ScreeningTemplate } from '../types/screening';
 
-export interface ScreeningTemplateInput {
+interface ScreeningTemplateInput {
   name: string;
   criteria: ScreeningTemplate['criteria'];
   job_requirements: ScreeningTemplate['job_requirements'];

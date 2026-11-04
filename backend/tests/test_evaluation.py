@@ -12,6 +12,7 @@ from sqlalchemy import create_engine, inspect
 import backend.app.models as models
 from backend.app.database import Base, migrate_screening_schema
 from backend.app.evaluation import (
+    CriteriaSuggestions,
     EvaluationCriterion,
     JobDescriptionProfile,
     _request_model,
@@ -23,6 +24,26 @@ from backend.app.evaluation import (
 
 
 class EvaluationTests(unittest.TestCase):
+    def test_suggestion_model_defaults_to_hugging_face_qwen3_via_ollama(self):
+        response = MagicMock()
+        response.__enter__.return_value = response
+        response.read.return_value = (
+            b'{"message":{"content":"{\\"criteria\\":[{\\"name\\":\\"React\\",'
+            b'\\"required\\":false,\\"weight\\":3}]}"}}'
+        )
+
+        with patch.dict(os.environ, {"AI_PROVIDER": "ollama"}, clear=True), patch(
+            "backend.app.evaluation.urlopen", return_value=response
+        ) as open_url:
+            _request_model(
+                "Suggest preferred qualifications",
+                CriteriaSuggestions,
+                "Return preferred qualifications as JSON.",
+            )
+
+        request_payload = json.loads(open_url.call_args.args[0].data)
+        self.assertEqual(request_payload["model"], "hf.co/Qwen/Qwen3-4B-GGUF:Q4_K_M")
+
     def test_groq_api_key_alias_is_used_for_optional_generation(self):
         response = MagicMock()
         response.__enter__.return_value = response
@@ -121,6 +142,7 @@ class EvaluationTests(unittest.TestCase):
         self.assertIn("job_requirements", {column["name"] for column in inspect(engine).get_columns("screenings")})
         self.assertIn("structured_profile", {column["name"] for column in inspect(engine).get_columns("resumes")})
         self.assertIn("matching_details", {column["name"] for column in inspect(engine).get_columns("resume_evaluations")})
+        self.assertIn("reviewer_relevance", {column["name"] for column in inspect(engine).get_columns("resume_evaluations")})
         engine.dispose()
 
 

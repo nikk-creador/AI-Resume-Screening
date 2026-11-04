@@ -149,7 +149,6 @@ def score_extraction_predictions(
                 result = StructuredResume.model_validate(parsed)
                 quotes = [item.evidence for item in result.evidence]
                 evidence_quotes += len(quotes)
-                # Substring support prevents invented quotes but does not judge their relevance.
                 supported_evidence_quotes += sum(
                     quote.casefold() in example.source_text.casefold() for quote in quotes
                 )
@@ -362,7 +361,6 @@ def train(
         (output_dir / "test_metrics.json").write_text(
             json.dumps(test_metrics, indent=2, default=float) + "\n", encoding="utf-8"
         )
-        # Keep test generations separate from training and report aggregate metrics only.
         extraction_metrics = score_extraction_predictions(
             test_examples,
             _generate_predictions(model, tokenizer, test_examples, args.max_length),

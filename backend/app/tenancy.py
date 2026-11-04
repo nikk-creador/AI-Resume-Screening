@@ -121,11 +121,6 @@ def screening_company_scope(user: User):
     return Screening.owner_id == user.id
 
 
-def resume_download_scope(user: User):
-    require_company_permission(user, "can_download")
-    return screening_company_scope(user)
-
-
 def company_access_payload(
     membership: CompanyMembership,
     company: Company,

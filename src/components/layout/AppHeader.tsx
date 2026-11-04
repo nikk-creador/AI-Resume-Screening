@@ -1,10 +1,18 @@
 import { useState } from 'react';
 import type { MenuProps } from 'antd';
-import { Dropdown } from 'antd';
+import { Button, Dropdown } from 'antd';
+import { useMatch } from 'react-router-dom';
 
-import { DownOutlined, LogoutOutlined, SettingOutlined, UserOutlined } from '@ant-design/icons';
+import {
+  DownOutlined,
+  LogoutOutlined,
+  SettingOutlined,
+  UnorderedListOutlined,
+  UserOutlined,
+} from '@ant-design/icons';
 
 import OrganizationManager from '../../features/organization/components/OrganizationManager';
+import { routes } from '../../routes/paths';
 import type { AuthUser } from '../../types/auth';
 import type { CompanyAccess } from '../../types/organization';
 
@@ -16,6 +24,7 @@ interface AppHeaderProps {
   onCompanyCreated: (company: CompanyAccess) => void;
   onCompanyArchived: (companyId: string) => void;
   onCompanyRestored: () => Promise<void>;
+  onShowScreenings: () => void;
   onSignOut: () => void;
 }
 
@@ -30,9 +39,13 @@ export default function AppHeader({
   onCompanyCreated,
   onCompanyArchived,
   onCompanyRestored,
+  onShowScreenings,
   onSignOut,
 }: AppHeaderProps) {
   const [organizationPanelOpen, setOrganizationPanelOpen] = useState(false);
+  const isShowingScreeningsList = Boolean(useMatch({ path: routes.screenings, end: true }));
+  const isShowingScreeningDetail = Boolean(useMatch({ path: routes.screening, end: false }));
+  const isShowingScreenings = isShowingScreeningsList || isShowingScreeningDetail;
   const initials = user.full_name
     .trim()
     .split(/\s+/)
@@ -82,6 +95,17 @@ export default function AppHeader({
             Recruit<span className="brand-accent">AI</span>
           </span>
         </a>
+        <nav className="topbar-navigation" aria-label="Workspace navigation">
+          <Button
+            className={`topbar-navigation-link${isShowingScreenings ? ' is-active' : ''}`}
+            type="text"
+            icon={<UnorderedListOutlined />}
+            aria-current={isShowingScreenings ? 'page' : undefined}
+            onClick={onShowScreenings}
+          >
+            Screenings
+          </Button>
+        </nav>
         <Dropdown
           menu={{ items: accountMenuItems, selectedKeys: [activeCompany.id], selectable: true }}
           trigger={['click']}

@@ -1,8 +1,7 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Button,
-  Descriptions,
   Empty,
   Input,
   InputNumber,
@@ -20,8 +19,10 @@ import {
 import type { ColumnsType } from 'antd/es/table';
 
 import {
+  DeleteOutlined,
   DiffOutlined,
   DownloadOutlined,
+  EditOutlined,
   LockOutlined,
   MessageOutlined,
   ReloadOutlined,
@@ -39,6 +40,7 @@ import type {
   CandidateRow,
   ResumeRow,
   RetryMode,
+  ScreeningRankingMetrics,
 } from '../../../types/screening';
 import { getErrorMessage } from '../../../utils/errors';
 import {
@@ -56,6 +58,12 @@ const pipelineStageOptions: { value: CandidatePipelineStage; label: string }[] =
   { value: 'interview', label: 'Interview' },
   { value: 'decision', label: 'Decision' },
 ];
+const relevanceOptions = [
+  { value: 0, label: '0 · No match' },
+  { value: 1, label: '1 · Weak' },
+  { value: 2, label: '2 · Qualified' },
+  { value: 3, label: '3 · Strong' },
+];
 
 function getKeyedEvidence(criterionId: string, evidence: string[]) {
   const occurrences = new Map<string, number>();
@@ -63,6 +71,42 @@ function getKeyedEvidence(criterionId: string, evidence: string[]) {
     const occurrence = occurrences.get(quote) ?? 0;
     occurrences.set(quote, occurrence + 1);
     return { key: JSON.stringify([criterionId, quote, occurrence]), quote };
+  });
+}
+
+function getProfileDetails(resume: CandidateRow, section: 'education' | 'work_experience') {
+  const profile = resume.structuredProfile;
+  const savedDetails = profile?.[section] ?? [];
+  const evidenceDetails = (profile?.evidence ?? [])
+    .filter((item) =>
+      section === 'education'
+        ? /education|academic/i.test(item.section)
+        : /experience|employment|work/i.test(item.section) ||
+          item.source_type === 'professional' ||
+          item.source_type === 'internship',
+    )
+    .map((item) => item.evidence);
+  const assessmentDetails = (resume.evaluation?.assessments ?? [])
+    .filter((assessment) =>
+      section === 'education'
+        ? assessment.requirement_type === 'education'
+        : assessment.requirement_type === 'experience',
+    )
+    .flatMap((assessment) => assessment.evidence ?? []);
+
+  const details = [
+    ...new Set(
+      [...savedDetails, ...evidenceDetails, ...assessmentDetails].map((item) =>
+        item.replace(/\s+/g, ' ').trim(),
+      ),
+    ),
+  ].filter(Boolean);
+
+  return details.slice(0, 2).map((detail) => {
+    if (detail.length <= 120) return detail;
+    const shortened = detail.slice(0, 117).trimEnd();
+    const lastSpace = shortened.lastIndexOf(' ');
+    return `${shortened.slice(0, lastSpace > 80 ? lastSpace : shortened.length)}...`;
   });
 }
 
@@ -95,6 +139,8 @@ interface CandidateResultsProps {
   onRetryOne: (resumeId: string) => Promise<void>;
   onStop: () => void;
   onReview: (resumeId: string, score: number, note: string) => Promise<void>;
+  rankingMetrics: ScreeningRankingMetrics | null;
+  onRelevanceChange: (resumeId: string, relevance: number | null) => Promise<void>;
   onPipelineStageChange: (resumeId: string, stage: CandidatePipelineStage) => Promise<void>;
 }
 
@@ -127,6 +173,7 @@ export default function CandidateResults({
   onRetryOne,
   onStop,
   onReview,
+  onRelevanceChange,
   onPipelineStageChange,
 }: CandidateResultsProps) {
   const [retryDialogOpen, setRetryDialogOpen] = useState(false);
@@ -138,9 +185,29 @@ export default function CandidateResults({
   const [reviewScore, setReviewScore] = useState<number | null>(null);
   const [reviewNote, setReviewNote] = useState('');
   const [savingReview, setSavingReview] = useState(false);
+  const [savingRelevanceId, setSavingRelevanceId] = useState<string | null>(null);
   const [retryingResumeId, setRetryingResumeId] = useState<string | null>(null);
   const [updatingPipelineStageId, setUpdatingPipelineStageId] = useState<string | null>(null);
   const [messageApi, contextHolder] = message.useMessage();
+  const reportedEvaluationFailuresRef = useRef(new Set<string>());
+  useEffect(() => {
+    const newFailures = resumes.flatMap((resume) => {
+      const { evaluation } = resume;
+      if (evaluation?.status !== 'failed') return [];
+      const { updated_at: updatedAt, error_message: errorMessage } = evaluation;
+      const key = `${resume.id ?? resume.key}:${updatedAt}:${errorMessage ?? ''}`;
+      if (reportedEvaluationFailuresRef.current.has(key)) return [];
+      reportedEvaluationFailuresRef.current.add(key);
+      return [`${displayName(resume.name)}: ${errorMessage || 'Evaluation failed.'}`];
+    });
+    if (newFailures.length) {
+      const visibleFailures = newFailures.slice(0, 3);
+      const remainingCount = newFailures.length - visibleFailures.length;
+      messageApi.error(
+        `${visibleFailures.join(' · ')}${remainingCount > 0 ? ` · ${remainingCount} more failed` : ''}`,
+      );
+    }
+  }, [messageApi, resumes]);
   const filteredResumes = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
     return resumes.filter(
@@ -210,6 +277,14 @@ export default function CandidateResults({
     if (first.required !== second.required) return first.required ? -1 : 1;
     return first.name.localeCompare(second.name);
   });
+  const updateRelevance = async (resumeId: string, relevance: number | null) => {
+    setSavingRelevanceId(resumeId);
+    try {
+      await onRelevanceChange(resumeId, relevance);
+    } finally {
+      setSavingRelevanceId(null);
+    }
+  };
   const downloadResume = async (resumeId: string, filename: string) => {
     try {
       await downloadApiFile(`/api/resumes/${encodeURIComponent(resumeId)}/download`, filename);
@@ -259,6 +334,7 @@ export default function CandidateResults({
       'Reviewer override score',
       'Reviewer note',
       'Review updated at',
+      'Recruiter relevance (0-3)',
     ];
     const records = [...resumes]
       .sort((first, second) => {
@@ -308,6 +384,7 @@ export default function CandidateResults({
           evaluation?.reviewer_override_score ?? '',
           evaluation?.reviewer_override_note ?? '',
           evaluation?.reviewer_updated_at ?? '',
+          evaluation?.reviewer_relevance ?? '',
         ];
       });
     const csv = [headers, ...records]
@@ -334,14 +411,9 @@ export default function CandidateResults({
       title: 'RANK',
       dataIndex: 'rank',
       key: 'rank',
-      width: 80,
-      render: (rank: number | null, resume: CandidateRow) => {
+      width: 64,
+      render: (rank: number | null) => {
         if (rank !== null) return <Text strong>#{rank}</Text>;
-        if (resume.evaluation?.status === 'failed') return <Text type="danger">Retry</Text>;
-        if (resume.evaluation?.status === 'stopped') return <Text type="secondary">Stopped</Text>;
-        if (resume.evaluation?.status === 'queued' || resume.evaluation?.status === 'processing') {
-          return <Text type="secondary">Pending</Text>;
-        }
         return <Text type="secondary">—</Text>;
       },
     },
@@ -349,6 +421,7 @@ export default function CandidateResults({
       title: 'CANDIDATE FILE',
       dataIndex: 'candidate',
       key: 'candidate',
+      width: 320,
       sorter: (a, b) => a.candidate.localeCompare(b.candidate),
       render: (name: string, resume: CandidateRow) => (
         <div className="candidate-cell">
@@ -371,6 +444,13 @@ export default function CandidateResults({
                   {resume.languageCode.toUpperCase()}
                 </Tag>
               )}
+            </Text>
+            <Text
+              type="secondary"
+              className="candidate-uploaded"
+              title={`${formatLocalDateTime(resume.createdAt)} (${new Intl.DateTimeFormat().resolvedOptions().timeZone})`}
+            >
+              Uploaded {formatLocalDateTime(resume.createdAt)}
             </Text>
             {(resume.duplicateReason || resume.archivedAt) && (
               <span className="candidate-flags">
@@ -400,41 +480,55 @@ export default function CandidateResults({
       ),
     },
     {
-      title: 'UPLOADED · LOCAL TIME',
-      dataIndex: 'createdAt',
-      key: 'createdAt',
-      width: 175,
-      render: (_, resume) => {
-        const localTime = formatLocalDateTime(resume.createdAt);
-        const timezone = new Intl.DateTimeFormat().resolvedOptions().timeZone;
-        return <Text title={`${localTime} (${timezone})`}>{localTime}</Text>;
-      },
-    },
-    {
       title: 'MATCH SCORE',
       key: 'score',
-      width: 300,
+      width: 210,
       render: (_, resume) => {
         const { evaluation } = resume;
         if (!evaluation || evaluation.status !== 'completed') {
+          if (evaluation?.status === 'failed') {
+            return <Tag color="error">Evaluation failed</Tag>;
+          }
+          const statusLabel =
+            evaluation?.status === 'processing'
+              ? 'Evaluating'
+              : evaluation?.status === 'queued'
+                ? 'Queued'
+                : evaluation?.status === 'stopped'
+                  ? 'Stopped'
+                  : 'Not evaluated';
           return (
-            <Text type={evaluation?.status === 'failed' ? 'danger' : 'secondary'}>
-              {evaluation?.status === 'failed'
-                ? evaluation.error_message || 'Evaluation failed'
-                : evaluation?.status === 'processing'
-                  ? 'Evaluating…'
-                  : evaluation?.status === 'queued'
-                    ? 'Queued'
-                    : 'Not evaluated'}
-            </Text>
+            <Tag className={`status-tag status-tag-${evaluation?.status ?? 'ready'}`}>
+              {statusLabel}
+            </Tag>
           );
         }
-        const requiredAssessments = (evaluation.assessments || []).filter(
-          (assessment) => assessment.required,
-        );
-        const matchingDetails = evaluation.matching_details;
-        const scoreLabel = (value: number | null | undefined, suffix = '/100') =>
-          value === null || value === undefined ? 'Not available' : `${value}${suffix}`;
+        const assessments = evaluation.assessments ?? [];
+        const requiredAssessments = assessments.filter((assessment) => assessment.required);
+        const preferredAssessments = assessments.filter((assessment) => !assessment.required);
+        const matchedCount = assessments.filter(
+          (assessment) => assessment.status === 'matched',
+        ).length;
+        const matchedRequiredCount = requiredAssessments.filter(
+          (assessment) => assessment.status === 'matched',
+        ).length;
+        const matchedPreferredCount = preferredAssessments.filter(
+          (assessment) => assessment.status === 'matched',
+        ).length;
+        const matchedSkills = [
+          ...new Set(
+            assessments
+              .filter(
+                (assessment) =>
+                  assessment.requirement_type === 'skill' &&
+                  (assessment.status === 'matched' || assessment.status === 'partially_matched'),
+              )
+              .map((assessment) => assessment.name.replace(/\*/g, '').trim())
+              .filter(Boolean),
+          ),
+        ];
+        const educationDetails = getProfileDetails(resume, 'education');
+        const workExperienceDetails = getProfileDetails(resume, 'work_experience');
         return (
           <div className="candidate-score">
             <div className="candidate-score-main">
@@ -448,53 +542,49 @@ export default function CandidateResults({
               />
             </div>
             <Popover
-              title="Detailed match score"
+              title="Score explanation"
               trigger="click"
               content={
                 <div className="candidate-evidence candidate-score-details">
-                  <Text>Final score: {evaluation.score ?? '—'}/100</Text>
-                  <Text type="secondary">
-                    Model score: {evaluation.model_score ?? evaluation.score ?? '—'}/100
+                  <Text>
+                    This score compares resume evidence with the job&apos;s skills, experience, and
+                    qualifications. It indicates match strength, not the likelihood of success or a
+                    hiring decision.
                   </Text>
-                  <Descriptions size="small" column={1} bordered>
-                    <Descriptions.Item label="Job match">
-                      {scoreLabel(evaluation.job_match_score)}
-                    </Descriptions.Item>
-                    <Descriptions.Item label="Must-have average">
-                      {scoreLabel(matchingDetails?.must_have_score)}
-                    </Descriptions.Item>
-                    <Descriptions.Item label="Nice-to-have average">
-                      {scoreLabel(matchingDetails?.nice_to_have_score)}
-                    </Descriptions.Item>
-                    <Descriptions.Item label="Preferred score / bonus">
-                      {scoreLabel(evaluation.preferred_score)} · {evaluation.bonus_points ?? 0}{' '}
-                      points
-                    </Descriptions.Item>
-                    <Descriptions.Item label="Keyword match">
-                      {scoreLabel(matchingDetails?.keyword_score)}
-                    </Descriptions.Item>
-                    <Descriptions.Item label="TF-IDF cosine match">
-                      {scoreLabel(matchingDetails?.tfidf_score)}
-                    </Descriptions.Item>
-                    <Descriptions.Item label="Semantic match">
-                      {scoreLabel(matchingDetails?.semantic_score)}
-                    </Descriptions.Item>
-                    <Descriptions.Item label="Mean cosine similarity">
-                      {scoreLabel(matchingDetails?.mean_cosine_similarity, '')}
-                    </Descriptions.Item>
-                    <Descriptions.Item label="Skill score">
-                      {scoreLabel(matchingDetails?.skill_score)}
-                    </Descriptions.Item>
-                    <Descriptions.Item label="Experience score">
-                      {scoreLabel(matchingDetails?.experience_score)}
-                    </Descriptions.Item>
-                    <Descriptions.Item label="Qualification score">
-                      {scoreLabel(matchingDetails?.qualification_score)}
-                    </Descriptions.Item>
-                    <Descriptions.Item label="Matching method">
-                      {matchingDetails?.matching_method || 'Not available'}
-                    </Descriptions.Item>
-                  </Descriptions>
+                  {assessments.length ? (
+                    <Text>
+                      Requirements matched: {matchedCount} of {assessments.length}
+                      {requiredAssessments.length > 0 &&
+                        ` · Must-haves: ${matchedRequiredCount} of ${requiredAssessments.length}`}
+                      {preferredAssessments.length > 0 &&
+                        ` · Preferred: ${matchedPreferredCount} of ${preferredAssessments.length}`}
+                    </Text>
+                  ) : (
+                    <Text type="secondary">No job requirements were available to compare.</Text>
+                  )}
+                  <div className="candidate-profile-details">
+                    <Text strong>Skills with evidence</Text>
+                    {matchedSkills.length ? (
+                      <Text>
+                        {matchedSkills.slice(0, 5).join(', ')}
+                        {matchedSkills.length > 5 && `, and ${matchedSkills.length - 5} more`}
+                      </Text>
+                    ) : (
+                      <Text type="secondary">No matching skills found.</Text>
+                    )}
+                    <Text strong>Education</Text>
+                    {educationDetails.length ? (
+                      educationDetails.map((detail) => <Text key={detail}>{detail}</Text>)
+                    ) : (
+                      <Text type="secondary">No education details found.</Text>
+                    )}
+                    <Text strong>Work experience</Text>
+                    {workExperienceDetails.length ? (
+                      workExperienceDetails.map((detail) => <Text key={detail}>{detail}</Text>)
+                    ) : (
+                      <Text type="secondary">No work experience details found.</Text>
+                    )}
+                  </div>
                   {evaluation.reviewer_override_score !== null &&
                     evaluation.reviewer_override_score !== undefined && (
                       <Text>Recruiter review score: {evaluation.reviewer_override_score}/100</Text>
@@ -502,64 +592,6 @@ export default function CandidateResults({
                   {evaluation.reviewer_override_note && (
                     <Text type="secondary">Review note: {evaluation.reviewer_override_note}</Text>
                   )}
-                  <Text type="secondary">{evaluation.explanation}</Text>
-                  {(evaluation.required_checks || []).map((check) => (
-                    <Text key={check.name}>
-                      {check.met ? 'Passed' : 'Not verified'}: {check.name}
-                    </Text>
-                  ))}
-                  {requiredAssessments.map((assessment) => (
-                    <Text key={assessment.criterion_id}>
-                      Required metric: {assessment.name} · {assessment.status || 'scored'} ·{' '}
-                      {assessment.score}/100
-                    </Text>
-                  ))}
-                  <Text strong>All requirement details</Text>
-                  {(evaluation.assessments || []).map((assessment) => (
-                    <div className="candidate-assessment-detail" key={assessment.criterion_id}>
-                      <Text strong>
-                        {assessment.name} · {assessment.required ? 'Must-have' : 'Nice-to-have'}
-                      </Text>
-                      <Text>
-                        {assessment.status || 'Scored'} · Requirement score {assessment.score}/100
-                      </Text>
-                      <Text type="secondary">
-                        Exact:{' '}
-                        {assessment.exact_match === undefined
-                          ? 'Not available'
-                          : assessment.exact_match
-                            ? 'Yes'
-                            : 'No'}
-                        {' · '}Keyword: {scoreLabel(assessment.keyword_score)}
-                        {' · '}TF-IDF: {scoreLabel(assessment.tfidf_score)}
-                        {' · '}Semantic: {scoreLabel(assessment.semantic_score)}
-                      </Text>
-                      <Text type="secondary">
-                        Cosine: {scoreLabel(assessment.cosine_similarity, '')}
-                        {' · '}Reranker: {scoreLabel(assessment.reranker_score)}
-                        {' · '}Experience:{' '}
-                        {assessment.experience_match === null ||
-                        assessment.experience_match === undefined
-                          ? 'Not available'
-                          : assessment.experience_match
-                            ? 'Met'
-                            : 'Not met'}
-                        {assessment.experience_score !== null &&
-                        assessment.experience_score !== undefined
-                          ? ` (${assessment.experience_score}/100)`
-                          : ''}
-                      </Text>
-                      <Text type="secondary">
-                        Qualification: {scoreLabel(assessment.qualification_score)}
-                        {' · '}Evidence strength: {assessment.evidence_strength ?? 'Not available'}
-                      </Text>
-                      {getKeyedEvidence(assessment.criterion_id, assessment.evidence || []).map(
-                        ({ key, quote }) => (
-                          <Text key={key}>Evidence: “{quote}”</Text>
-                        ),
-                      )}
-                    </div>
-                  ))}
                 </div>
               }
             >
@@ -572,10 +604,40 @@ export default function CandidateResults({
       },
     },
     {
+      title: 'HUMAN RELEVANCE',
+      key: 'relevance',
+      width: 150,
+      render: (_, resume) => {
+        if (resume.evaluation?.status !== 'completed') {
+          return <Text type="secondary">—</Text>;
+        }
+        if (!resume.id || !canEdit || resume.archivedAt) {
+          const label = relevanceOptions.find(
+            (option) => option.value === resume.evaluation?.reviewer_relevance,
+          )?.label;
+          return <Text type="secondary">{label ?? 'Not rated'}</Text>;
+        }
+        return (
+          <Select<number>
+            allowClear
+            placeholder="Rate match"
+            value={resume.evaluation.reviewer_relevance ?? undefined}
+            options={relevanceOptions}
+            size="small"
+            loading={savingRelevanceId === resume.id}
+            disabled={savingRelevanceId !== null}
+            aria-label={`Recruiter relevance for ${resume.candidate}`}
+            onChange={(value) => void updateRelevance(resume.id!, value ?? null)}
+            style={{ width: 128 }}
+          />
+        );
+      },
+    },
+    {
       title: 'PIPELINE STAGE',
       dataIndex: 'pipelineStage',
       key: 'pipelineStage',
-      width: 145,
+      width: 130,
       render: (stage: CandidatePipelineStage, resume: CandidateRow) =>
         canEdit && resume.id && !resume.archivedAt ? (
           <Select
@@ -637,7 +699,7 @@ export default function CandidateResults({
     {
       title: 'ACTIONS',
       key: 'action',
-      width: 175,
+      width: 140,
       align: 'right',
       render: (_, resume) => (
         <div className="row-actions">
@@ -657,41 +719,46 @@ export default function CandidateResults({
             )}
           {resume.id && canDownload && (
             <Button
-              type="link"
-              size="small"
+              type="text"
+              size="middle"
+              icon={<DownloadOutlined />}
+              title="Download resume"
+              aria-label={`Download ${resume.candidate}'s resume`}
               onClick={() => {
                 if (resume.id) void downloadResume(resume.id, resume.name);
               }}
-            >
-              Download
-            </Button>
+            />
           )}
           {canEdit &&
             resume.id &&
             !resume.archivedAt &&
             resume.evaluation?.status === 'completed' && (
               <Button
-                size="small"
+                type="text"
+                size="middle"
+                icon={<EditOutlined />}
+                title="Review score"
+                aria-label={`Review score for ${resume.candidate}`}
                 onClick={() => {
                   setReviewTarget(resume);
                   setReviewScore(resume.evaluation?.score ?? null);
                   setReviewNote(resume.evaluation?.reviewer_override_note ?? '');
                 }}
-              >
-                Review score
-              </Button>
+              />
             )}
           {canEdit && (
             <Button
               type="text"
+              size="middle"
+              icon={<DeleteOutlined />}
               danger
+              title="Remove candidate"
+              aria-label={`Remove ${resume.candidate}`}
               disabled={deleting}
               onClick={() => {
                 onDeleteOne(resume.key);
               }}
-            >
-              Remove
-            </Button>
+            />
           )}
         </div>
       ),
@@ -780,25 +847,6 @@ export default function CandidateResults({
           )}
         </div>
       </div>
-
-      {isSaved && (
-        <div className="ranking-progress" aria-live="polite">
-          <div className="ranking-progress-copy">
-            <Text strong>
-              {completedCount} of {resumes.length} ranked
-            </Text>
-            <Text type="secondary">
-              {activeCount} in progress · {failedCount} failed · {stoppedCount} stopped
-            </Text>
-          </div>
-          <Progress
-            className="ranking-progress-bar"
-            percent={Math.round((completedCount / Math.max(resumes.length, 1)) * 100)}
-            status={failedCount ? 'exception' : undefined}
-            size="small"
-          />
-        </div>
-      )}
 
       {isSaved && duplicateCount > 0 && (
         <Alert
@@ -1109,7 +1157,7 @@ export default function CandidateResults({
             </Empty>
           ),
         }}
-        scroll={{ x: 1000 }}
+        scroll={{ x: 1100 }}
       />
       {screeningId && (
         <Text className="record-hint" type="secondary">

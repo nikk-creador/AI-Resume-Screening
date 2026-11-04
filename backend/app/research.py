@@ -34,8 +34,6 @@ class ExperimentPair(BaseModel):
     required_skills: list[str] = Field(default_factory=list)
     experience_match: float | None = Field(default=None, ge=0, le=1)
     qualification_match: float | None = Field(default=None, ge=0, le=1)
-    # Optional, independently reviewed research labels. These fields are never
-    # consumed by production scoring; audit_group should be pseudonymous.
     requirement_labels: dict[str, bool] = Field(default_factory=dict)
     audit_group: str | None = Field(default=None, min_length=1, max_length=80)
     job_family: str | None = Field(default=None, min_length=1, max_length=100)
@@ -51,15 +49,6 @@ class ExperimentPair(BaseModel):
 
 def _tokens(text: str) -> list[str]:
     return TOKEN_PATTERN.findall(text.casefold())
-
-
-def _normalize(values: Sequence[float]) -> list[float]:
-    if not values:
-        return []
-    low, high = min(values), max(values)
-    if high == low:
-        return [0.5 for _ in values]
-    return [(value - low) / (high - low) for value in values]
 
 
 def _ranking_metrics(
@@ -314,9 +303,6 @@ def _score_test_pairs(
             key = pair.job_id, pair.candidate_id
             per_method["keyword_bm25"][key] = lexical[index]
             per_method["semantic_cosine"][key] = semantic[index]
-            # Use the same extraction, quote validation, requirement matching,
-            # and score aggregation as the screening worker. Human relevance
-            # labels remain evaluation-only and are never passed to the scorer.
             production = evaluate_resume(
                 pair.job_text, pair.resume_text, weights=production_weights
             )

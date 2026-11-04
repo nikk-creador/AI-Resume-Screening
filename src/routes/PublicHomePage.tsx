@@ -54,7 +54,7 @@ export default function PublicHomePage() {
     <div className="public-home">
       <header className="landing-nav">
         <div className="landing-nav-inner">
-          <Link className="brand landing-brand" to={routes.home} aria-label="RecruitAI home">
+          <Link className="brand landing-brand" to={routes.publicHome} aria-label="RecruitAI home">
             <span className="brand-mark">R</span>
             <span>
               Recruit<span className="brand-accent">AI</span>
@@ -402,7 +402,7 @@ export default function PublicHomePage() {
         <div className="landing-footer-inner">
           <div className="landing-footer-main">
             <div className="landing-footer-brand-block">
-              <Link className="brand landing-brand" to={routes.home}>
+              <Link className="brand landing-brand" to={routes.publicHome}>
                 <span className="brand-mark">R</span>
                 <span>
                   Recruit<span className="brand-accent">AI</span>

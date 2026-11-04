@@ -1,5 +1,17 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Alert, Button, Card, List, Modal, Select, Space, Spin, Tag, Typography } from 'antd';
+import {
+  Alert,
+  Button,
+  Card,
+  List,
+  message,
+  Modal,
+  Select,
+  Space,
+  Spin,
+  Tag,
+  Typography,
+} from 'antd';
 
 import { MessageOutlined } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
@@ -40,11 +52,20 @@ export default function InterviewQuestionPanel({
   const [selectedResumeId, setSelectedResumeId] = useState<string | undefined>(
     completedResumes[0]?.id ?? undefined,
   );
+  const [messageApi, contextHolder] = message.useMessage();
   const questionsQuery = useQuery({
     queryKey: queryKeys.interviewQuestions(selectedResumeId ?? ''),
     queryFn: () => suggestInterviewQuestions(selectedResumeId!),
     enabled: open && Boolean(selectedResumeId),
   });
+
+  useEffect(() => {
+    if (open && questionsQuery.error) {
+      messageApi.error(
+        getErrorMessage(questionsQuery.error, 'Could not draft interview questions.'),
+      );
+    }
+  }, [messageApi, open, questionsQuery.error]);
 
   useEffect(() => {
     if (
@@ -74,6 +95,7 @@ export default function InterviewQuestionPanel({
       destroyOnHidden
     >
       <Space className="interview-question-content" direction="vertical" size="middle">
+        {contextHolder}
         <div className="feature-modal-intro">
           <Text type="secondary">
             Questions connect the candidate’s evaluated role criteria to evidence in the resume.
@@ -97,12 +119,9 @@ export default function InterviewQuestionPanel({
           />
         </div>
         {questionsQuery.error && (
-          <Alert
-            type="error"
-            showIcon
-            title={getErrorMessage(questionsQuery.error, 'Could not draft interview questions.')}
-            action={<Button onClick={() => void questionsQuery.refetch()}>Retry</Button>}
-          />
+          <Button type="link" onClick={() => void questionsQuery.refetch()}>
+            Retry drafting questions
+          </Button>
         )}
         {questionsQuery.isLoading ? (
           <div className="interview-question-loading">

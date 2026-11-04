@@ -1,6 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
-import { ApiError } from '../services/api/client';
 import { queryKeys } from '../services/api/queryKeys';
 import {
   completeEmailVerification,
@@ -73,5 +72,3 @@ export const useResetPassword = () =>
     mutationFn: ({ token, password }: { token: string; password: string }) =>
       completePasswordReset(token, password),
   });
-
-export { ApiError };

@@ -1,6 +1,6 @@
 import { apiRequest as request } from './api/client';
 
-export interface InterviewQuestion {
+interface InterviewQuestion {
   criterion_id: string;
   criterion: string;
   criterion_type: 'Must-have' | 'Nice-to-have';

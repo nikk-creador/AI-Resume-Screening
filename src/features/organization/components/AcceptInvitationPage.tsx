@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Alert, Button, Form, Input, Result, Spin, Typography } from 'antd';
+import { useEffect, useState } from 'react';
+import { Alert, Button, Form, Input, message, Result, Spin, Typography } from 'antd';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -22,8 +22,8 @@ interface InvitationFormValues {
 export default function AcceptInvitationPage({ user }: { user: AuthUser | null }) {
   const [searchParams] = useSearchParams();
   const [form] = Form.useForm<InvitationFormValues>();
-  const [errorMessage, setErrorMessage] = useState('');
   const [token] = useState(() => searchParams.get('token') ?? '');
+  const [messageApi, contextHolder] = message.useMessage();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const invitationQuery = useQuery({
@@ -46,15 +46,27 @@ export default function AcceptInvitationPage({ user }: { user: AuthUser | null }
       navigate(routes.screenings, { replace: true });
     },
     onError: (error) =>
-      setErrorMessage(getErrorMessage(error, 'Could not accept this invitation.')),
+      messageApi.error(getErrorMessage(error, 'Could not accept this invitation.')),
   });
+  useEffect(() => {
+    if (!token) messageApi.error('Invitation link is missing.');
+    if (invitationQuery.error) {
+      messageApi.error(
+        getErrorMessage(
+          invitationQuery.error,
+          'Ask the company administrator to send a new invitation.',
+        ),
+      );
+    }
+  }, [invitationQuery.error, messageApi, token]);
 
   if (!token) {
     return (
       <main className="auth-page">
+        {contextHolder}
         <Result
-          status="error"
-          title="Invitation link is missing"
+          status="warning"
+          title="No invitation to accept"
           extra={<Link to={routes.signIn}>Go to sign in</Link>}
         />
       </main>
@@ -70,13 +82,10 @@ export default function AcceptInvitationPage({ user }: { user: AuthUser | null }
   if (invitationQuery.error || !invitationQuery.data) {
     return (
       <main className="auth-page">
+        {contextHolder}
         <Result
-          status="error"
-          title="Invitation is invalid or expired"
-          subTitle={getErrorMessage(
-            invitationQuery.error,
-            'Ask the company administrator to send a new invitation.',
-          )}
+          status="warning"
+          title="Invitation unavailable"
           extra={<Link to={routes.signIn}>Go to sign in</Link>}
         />
       </main>
@@ -87,6 +96,7 @@ export default function AcceptInvitationPage({ user }: { user: AuthUser | null }
   const signedInAsInvitee = user?.email.toLowerCase() === invitation.email.toLowerCase();
   return (
     <main className="auth-page">
+      {contextHolder}
       <section className="auth-card" aria-labelledby="invitation-heading">
         <Text className="eyebrow">COMPANY INVITATION</Text>
         <Title id="invitation-heading" level={2}>
@@ -116,14 +126,10 @@ export default function AcceptInvitationPage({ user }: { user: AuthUser | null }
             .join(', ') || 'no screening'}{' '}
           access.
         </Paragraph>
-        {errorMessage && (
-          <Alert type="error" showIcon message={errorMessage} style={{ marginBottom: 16 }} />
-        )}
         <Form
           form={form}
           layout="vertical"
           onFinish={(values) => {
-            setErrorMessage('');
             acceptMutation.mutate(values);
           }}
         >

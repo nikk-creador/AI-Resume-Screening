@@ -6,6 +6,7 @@ from functools import lru_cache
 import logging
 import math
 import os
+from pathlib import Path
 import re
 from typing import Literal
 
@@ -73,13 +74,16 @@ class StructuredResume(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     evidence: list[ResumeEvidence] = Field(default_factory=list, max_length=100)
+    education: list[str] = Field(default_factory=list, max_length=50)
+    work_experience: list[str] = Field(default_factory=list, max_length=50)
 
 
 class MatchingWeights(BaseModel):
     """Provisional, configurable weights; calibrate only against reviewed development data."""
 
     exact: float = Field(default=0.30, ge=0, le=1)
-    semantic: float = Field(default=0.55, ge=0, le=1)
+    semantic: float = Field(default=0.35, ge=0, le=1)
+    bm25: float = Field(default=0.20, ge=0, le=1)
     reranker: float = Field(default=0.0, ge=0, le=1)
     evidence: float = Field(default=0.15, ge=0, le=1)
     must_have_group: float = Field(default=0.80, ge=0, le=1)
@@ -88,12 +92,13 @@ class MatchingWeights(BaseModel):
     partial_threshold: float = Field(default=0.40, ge=0, le=1)
     skill_weight: float = Field(default=0.40, ge=0, le=1)
     semantic_weight: float = Field(default=0.35, ge=0, le=1)
+    bm25_weight: float = Field(default=0.15, ge=0, le=1)
     experience_weight: float = Field(default=0.15, ge=0, le=1)
     qualification_weight: float = Field(default=0.10, ge=0, le=1)
 
     @model_validator(mode="after")
     def validate_weight_groups(self) -> MatchingWeights:
-        if self.exact + self.semantic + self.reranker + self.evidence == 0:
+        if self.exact + self.semantic + self.bm25 + self.reranker + self.evidence == 0:
             raise ValueError("At least one matching component weight must be positive.")
         if self.must_have_group + self.nice_to_have_group == 0:
             raise ValueError("At least one requirement group weight must be positive.")
@@ -102,6 +107,7 @@ class MatchingWeights(BaseModel):
         if (
             self.skill_weight
             + self.semantic_weight
+            + self.bm25_weight
             + self.experience_weight
             + self.qualification_weight
             == 0
@@ -205,9 +211,15 @@ def _lexical_score(requirement: JobRequirement, evidence: ResumeEvidence) -> flo
 
 
 @lru_cache(maxsize=2)
-def _embedding_model(model_name: str):
+def _embedding_model(model_name: str, specific_model_path: str = ""):
     from fastembed import TextEmbedding
 
+    if specific_model_path:
+        return TextEmbedding(
+            model_name=model_name,
+            specific_model_path=specific_model_path,
+            threads=int(os.getenv("MATCH_CPU_THREADS", "4")),
+        )
     return TextEmbedding(
         model_name=model_name,
         threads=int(os.getenv("MATCH_CPU_THREADS", "4")),
@@ -215,19 +227,45 @@ def _embedding_model(model_name: str):
 
 
 @lru_cache(maxsize=256)
-def _cached_embeddings(model_name: str, texts: tuple[str, ...]) -> tuple[tuple[float, ...], ...]:
+def _cached_embeddings(
+    model_name: str,
+    texts: tuple[str, ...],
+    specific_model_path: str = "",
+) -> tuple[tuple[float, ...], ...]:
+    model = (
+        _embedding_model(model_name, specific_model_path)
+        if specific_model_path
+        else _embedding_model(model_name)
+    )
     return tuple(
         tuple(float(value) for value in vector)
-        for vector in _embedding_model(model_name).embed(list(texts))
+        for vector in model.embed(list(texts))
     )
 
 
-def _embed_texts(texts: list[str]) -> list[tuple[float, ...]]:
+def embed_texts(texts: list[str]) -> list[list[float]]:
     model_name = os.getenv(
         "MATCH_EMBEDDING_MODEL",
         "sentence-transformers/all-MiniLM-L6-v2",
     )
-    return list(_cached_embeddings(model_name, tuple(texts)))
+    model_path = os.getenv("MATCH_EMBEDDING_PATH", "").strip()
+    if model_path:
+        resolved_path = Path(model_path).expanduser()
+        if not resolved_path.is_absolute():
+            resolved_path = Path(__file__).resolve().parents[2] / resolved_path
+        resolved_path = resolved_path.resolve()
+        if not resolved_path.is_dir():
+            raise FileNotFoundError(f"MATCH_EMBEDDING_PATH is not a directory: {resolved_path}")
+        return [
+            list(vector)
+            for vector in _cached_embeddings(model_name, tuple(texts), str(resolved_path))
+        ]
+    return [list(vector) for vector in _cached_embeddings(model_name, tuple(texts))]
+
+
+def _embed_texts(texts: list[str]) -> list[list[float]]:
+    return embed_texts(texts)
+
 
 
 @lru_cache(maxsize=1)
@@ -242,7 +280,8 @@ def _reranker_model():
     )
 
 
-def _precompute_passage_vectors(passages: list[str]) -> list | None:
+def _precompute_passage_vectors(passages: list[str]) -> list[list[float]] | None:
+
     """Embed all passages in a single batch so they are not re-embedded for each requirement.
 
     The same evidence passages are scored against every requirement, so embedding
@@ -259,8 +298,9 @@ def _precompute_passage_vectors(passages: list[str]) -> list | None:
 
 
 def _cosine_score_matrix(
-    queries: list[str], passages: list[str], passage_vectors: list | None
+    queries: list[str], passages: list[str], passage_vectors: list[list[float]] | None
 ) -> list[list[float | None]]:
+
     """Embed all requirement queries together and reuse the evidence batch."""
     if not passages:
         return [[] for _ in queries]
@@ -300,58 +340,41 @@ def _tfidf_cosine_score_matrix(
         from sklearn.metrics.pairwise import cosine_similarity
 
         vectorizer = TfidfVectorizer(
-            tokenizer=matching_tokens,
-            token_pattern=None,
+            analyzer=matching_tokens,
             lowercase=False,
             norm="l2",
             dtype=np.float32,
         )
-        document_vectors = vectorizer.fit_transform([*queries, *passages])
-        query_vectors = document_vectors[:len(queries)]
-        passage_vectors = document_vectors[len(queries):]
+        vectorizer.fit([*queries, *passages])
+        query_vectors = vectorizer.transform(queries)
+        passage_vectors = vectorizer.transform(passages)
         return cosine_similarity(query_vectors, passage_vectors).tolist()
     except ValueError:
-        # Empty or punctuation-only input has no vocabulary; treat it as no lexical match.
         return [[0.0 for _ in passages] for _ in queries]
     except Exception:
         logger.exception("TF-IDF matching is unavailable; retaining other match signals.")
         return [[None for _ in passages] for _ in queries]
 
 
-def _cosine_scores(
-    query: str, passages: list[str], passage_vectors: list | None = None
-) -> list[float | None]:
+def _bm25_score_matrix(queries: list[str], passages: list[str]) -> list[list[float]]:
+    """Score each query against evidence passages, normalized per query to [0, 1]."""
     if not passages:
-        return []
-    try:
-        import numpy as np
+        return [[] for _ in queries]
+    from rank_bm25 import BM25Plus
 
-        if passage_vectors is not None:
-            # Reuse pre-computed passage vectors; only embed the query token.
-            query_vector = _embed_texts([query])[0]
-        else:
-            vectors = _embed_texts([query, *passages])
-            query_vector = vectors[0]
-            passage_vectors = vectors[1:]
-        return [
-            float(
-                np.clip(
-                    np.dot(query_vector, vector)
-                    / (np.linalg.norm(query_vector) * np.linalg.norm(vector)),
-                    -1,
-                    1,
-                )
-            )
-            for vector in passage_vectors
-        ]
-    except Exception:
-        logger.exception("Local embedding model is unavailable; using exact/lexical evidence matching.")
-        query_terms = set(re.findall(r"[\w+#.]+", query.casefold()))
-        return [
-            len(query_terms & set(re.findall(r"[\w+#.]+", passage.casefold())))
-            / max(1, len(query_terms | set(re.findall(r"[\w+#.]+", passage.casefold()))))
-            for passage in passages
-        ]
+    tokenized_passages = [matching_tokens(passage) for passage in passages]
+    if not any(tokenized_passages):
+        return [[0.0 for _ in passages] for _ in queries]
+    bm25 = BM25Plus(tokenized_passages)
+    scores_by_query = []
+    for query in queries:
+        query_tokens = matching_tokens(query)
+        scores = [float(score) for score in bm25.get_scores(query_tokens)]
+        maximum = max((score for score in scores if score > 0), default=0.0)
+        scores_by_query.append(
+            [max(0.0, score) / maximum if maximum else 0.0 for score in scores]
+        )
+    return scores_by_query
 
 
 def _reranker_scores(query: str, passages: list[str]) -> list[float | None]:
@@ -384,6 +407,7 @@ def score_requirements(
     profile: StructuredResume,
     resume_text: str,
     weights: MatchingWeights | None = None,
+    resume_embedding: list[float] | None = None,
 ) -> dict:
     """Score each requirement against quoted, source-typed candidate evidence."""
     weights = weights or MatchingWeights()
@@ -392,20 +416,30 @@ def score_requirements(
         for item in profile.evidence
         if item.evidence.casefold() in resume_text.casefold()
     ]
-    # Pre-compute passage embeddings once — the same evidence passages are
-    # scored against every requirement, so embedding them per-requirement is
-    # redundant work (N requirements × M passages → M + N).
     passages = [f"{item.normalized_concept}. {item.evidence}" for item in evidence_items]
-    passage_vectors = _precompute_passage_vectors(passages)
+
+    passage_vectors = None
+    if resume_embedding is not None and len(passages) > 0:
+        # If we have a cached resume embedding, we use it for passage vectors if possible.
+        # However, passage_vectors in this function expects a list of vectors for each evidence item.
+        # For now, we still compute passage vectors but we'll return the full resume embedding
+        # so it can be cached in the caller.
+        passage_vectors = _precompute_passage_vectors(passages)
+    else:
+        passage_vectors = _precompute_passage_vectors(passages)
+
     queries = [f"{requirement.normalized_concept}. {requirement.text}" for requirement in requirements]
+
     semantic_matrix = _cosine_score_matrix(queries, passages, passage_vectors)
     tfidf_matrix = _tfidf_cosine_score_matrix(queries, passages)
+    bm25_matrix = _bm25_score_matrix(queries, passages)
     scored = []
     for requirement_index, requirement in enumerate(requirements):
         candidates = evidence_items
         query = queries[requirement_index]
         semantic = semantic_matrix[requirement_index]
         tfidf = tfidf_matrix[requirement_index]
+        bm25_scores = bm25_matrix[requirement_index]
         available_tfidf = [value for value in tfidf if value is not None]
         if available_tfidf:
             tfidf_score = max(available_tfidf)
@@ -444,7 +478,12 @@ def score_requirements(
             sem = semantic_components[index]
             rerank = rerank_by_index.get(index)
             source_strength = SOURCE_STRENGTH[evidence.source_type]
-            components = [(weights.exact, 1.0 if exact else 0.0), (weights.evidence, source_strength)]
+            bm25_score = bm25_scores[index]
+            components = [
+                (weights.exact, 1.0 if exact else 0.0),
+                (weights.bm25, bm25_score),
+                (weights.evidence, source_strength),
+            ]
             if sem is not None:
                 components.append((weights.semantic, sem))
             if rerank is not None:
@@ -453,7 +492,7 @@ def score_requirements(
             match_score = sum(weight * value for weight, value in components) / denominator if denominator else 0.0
             if match_score > best_score:
                 best_score = match_score
-                best = (evidence, exact, sem, cosine_similarity, rerank, source_strength)
+                best = (evidence, exact, sem, cosine_similarity, rerank, source_strength, bm25_score)
 
         is_relevant = best is not None and (
             best[1]
@@ -470,6 +509,7 @@ def score_requirements(
                 "score": 0,
                 "exact_match": False,
                 "keyword_score": round(keyword_score * 100),
+                "bm25_score": round(max(bm25_scores, default=0.0) * 100),
                 "tfidf_score": round(tfidf_score * 100) if tfidf_score is not None else None,
                 "semantic_score": (
                     round(max((value or 0.0 for value in semantic_components), default=0.0) * 100)
@@ -488,7 +528,7 @@ def score_requirements(
                 "evidence": [],
             }
         else:
-            evidence, exact, sem, cosine_similarity, rerank, strength = best
+            evidence, exact, sem, cosine_similarity, rerank, strength, bm25_score = best
             experience = _experience_match(requirement, evidence)
             if experience is False:
                 best_score *= 0.5
@@ -508,6 +548,7 @@ def score_requirements(
                 "score": round(best_score * 100),
                 "exact_match": exact,
                 "keyword_score": round(keyword_score * 100),
+                "bm25_score": round(bm25_score * 100),
                 "tfidf_score": round(tfidf_score * 100) if tfidf_score is not None else None,
                 "semantic_score": round(sem * 100) if sem is not None else None,
                 "cosine_similarity": cosine_similarity,
@@ -563,6 +604,7 @@ def score_requirements(
     components = [
         (weights.skill_weight, average(skills, "keyword_score")),
         (weights.semantic_weight, average(scored, "semantic_score")),
+        (weights.bm25_weight, average(scored, "bm25_score")),
         (weights.experience_weight, average(experience, "experience_score")),
         (weights.qualification_weight, average(qualifications, "qualification_score")),
     ]
@@ -587,10 +629,12 @@ def score_requirements(
         for item in scored
         if item["cosine_similarity"] is not None
     ]
-    return {
+        # Prepare result to return
+    matching_result = {
         "score": hybrid_score,
         "research_scores": {
             "keyword_score": rounded_average(scored, "keyword_score"),
+            "bm25_score": rounded_average(scored, "bm25_score"),
             "tfidf_score": rounded_average(scored, "tfidf_score"),
             "semantic_score": rounded_average(scored, "semantic_score"),
             "mean_cosine_similarity": (
@@ -605,6 +649,7 @@ def score_requirements(
             "component_weights": {
                 "skill": weights.skill_weight,
                 "semantic": weights.semantic_weight,
+                "bm25": weights.bm25_weight,
                 "experience": weights.experience_weight,
                 "qualification": weights.qualification_weight,
             },
@@ -624,3 +669,14 @@ def score_requirements(
         "must_have_score": round(must_score) if must_score is not None else None,
         "nice_to_have_score": round(nice_score) if nice_score is not None else None,
     }
+
+    # If we computed new vectors and didn't have a cached one, we can return the 'mean' vector as a resume representation
+    if passage_vectors and resume_embedding is None:
+        try:
+            import numpy as np
+            avg_vector = np.mean(passage_vectors, axis=0).tolist()
+            matching_result["resume_embedding"] = avg_vector
+        except Exception:
+            pass
+
+    return matching_result

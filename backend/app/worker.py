@@ -51,7 +51,7 @@ def process_next_evaluation(db: Session, upload_dir: Path = UPLOAD_DIR) -> bool:
     if resume_id is None:
         return False
 
-    claimed = db.execute(
+    claimed_resume_id = db.scalar(
         update(ResumeEvaluation)
         .where(ResumeEvaluation.resume_id == resume_id, ResumeEvaluation.status == "queued")
         .values(
@@ -60,8 +60,9 @@ def process_next_evaluation(db: Session, upload_dir: Path = UPLOAD_DIR) -> bool:
             error_message=None,
             updated_at=now,
         )
+        .returning(ResumeEvaluation.resume_id)
     )
-    if claimed.rowcount != 1:
+    if claimed_resume_id is None:
         db.rollback()
         return True
     db.commit()
@@ -89,7 +90,8 @@ def process_next_evaluation(db: Session, upload_dir: Path = UPLOAD_DIR) -> bool:
     try:
         if not file_path.is_file():
             raise ValueError("Stored resume file is missing.")
-        resume_text = extract_resume_text(filename, file_path.read_bytes())
+        resume_bytes = file_path.read_bytes()
+        resume_text = extract_resume_text(filename, resume_bytes)
         resume.language_code = detect_resume_language(resume_text)
         if not resume.screening.job_requirements:
             extracted_requirements = extract_job_requirements(job_description)
@@ -99,15 +101,21 @@ def process_next_evaluation(db: Session, upload_dir: Path = UPLOAD_DIR) -> bool:
             if resume.screening.scoring_config is None:
                 resume.screening.scoring_config = default_matching_weights().model_dump()
         if not resume.structured_profile:
-            structured_profile = extract_resume_profile(resume_text)
-            resume.structured_profile = structured_profile.model_dump()
+            resume.structured_profile = extract_resume_profile(resume_text).model_dump()
+        elif not all(
+            resume.structured_profile.get(section)
+            for section in ("education", "work_experience")
+        ):
+            extracted_profile = extract_resume_profile(resume_text).model_dump()
+            profile_data = dict(resume.structured_profile)
+            for section in ("education", "work_experience"):
+                if not profile_data.get(section):
+                    profile_data[section] = extracted_profile[section]
+            resume.structured_profile = profile_data
         db.commit()
         current_status = db.scalar(
             select(ResumeEvaluation.status).where(ResumeEvaluation.resume_id == resume_id)
         )
-        # Close the read transaction before running inference. Besides keeping the
-        # worker's DB session idle during a long model call, this lets stop requests
-        # update the same evaluation (especially with SQLite's single-writer lock).
         db.rollback()
         if current_status != "processing":
             return True
@@ -123,7 +131,12 @@ def process_next_evaluation(db: Session, upload_dir: Path = UPLOAD_DIR) -> bool:
             weights=MatchingWeights.model_validate(
                 resume.screening.scoring_config or default_matching_weights().model_dump()
             ),
+            resume_embedding=resume.resume_embedding,
         )
+        if result.get("resume_embedding") and resume.resume_embedding is None:
+            resume.resume_embedding = result["resume_embedding"]
+            db.commit()
+
     except ValueError as error:
         return _finish_failure(db, resume_id, str(error))
     except Exception as error:

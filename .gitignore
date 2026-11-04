@@ -7,3 +7,9 @@ __pycache__/
 backend/data/
 backend/storage/
 .local/
+.env.local
+
+# Large datasets
+backend/triplets.jsonl
+backend/pairs.jsonl
+*.jsonl

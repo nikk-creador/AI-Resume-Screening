@@ -46,6 +46,9 @@ def migrate_screening_schema(bind=engine) -> None:
             "reviewer_override_note": String(),
             "reviewer_id": String(36),
             "reviewer_updated_at": DateTime(timezone=True),
+            "reviewer_relevance": Integer(),
+            "relevance_reviewer_id": String(36),
+            "relevance_updated_at": DateTime(timezone=True),
         },
         "resumes": {
             "language_code": String(12),
@@ -112,8 +115,6 @@ def migrate_screening_schema(bind=engine) -> None:
     }
     added_columns: set[tuple[str, str]] = set()
     with bind.begin() as connection:
-        # API and worker startup can run at the same time. Serialize inspection
-        # and ALTERs so every process sees schema changes committed by its peers.
         if bind.dialect.name == "postgresql":
             connection.execute(text("SELECT pg_advisory_xact_lock(1779032110, 1)"))
         inspector = inspect(connection)
@@ -165,8 +166,6 @@ def migrate_screening_schema(bind=engine) -> None:
                 )
                 added_columns.add((table_name, column_name))
 
-        # Older tenant tables used status/token_hash/invited_by/user_id names.
-        # Copy values into the current model columns before the application uses them.
         legacy_backfills = {
             ("organization_memberships", "is_active"): "CASE WHEN lower(coalesce(status, '')) IN ('active', 'accepted') THEN TRUE ELSE FALSE END",
             ("company_memberships", "is_active"): "CASE WHEN lower(coalesce(status, '')) IN ('active', 'accepted') THEN TRUE ELSE FALSE END",
@@ -188,9 +187,6 @@ def migrate_screening_schema(bind=engine) -> None:
                 text(f"UPDATE {table_name} SET {target_column} = {expression}{where_null}")
             )
         if inspector.has_table("screenings"):
-            # Use the same transaction connection for catalog reads. A separate
-            # connection blocks on PostgreSQL's catalog locks held by our own
-            # uncommitted ALTER TABLE statements, leaving startup stuck forever.
             screening_columns = {
                 column["name"] for column in inspect(connection).get_columns("screenings")
             }

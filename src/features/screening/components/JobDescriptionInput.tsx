@@ -17,7 +17,6 @@ interface JobDescriptionInputProps {
   disabled: boolean;
   jobFile: JobDescriptionFile | null;
   jobText: string;
-  error: string;
   onFile: NonNullable<UploadProps['beforeUpload']>;
   onRemoveFile: () => void;
   onTextChange: (value: string) => void;
@@ -29,7 +28,6 @@ export default function JobDescriptionInput({
   disabled,
   jobFile,
   jobText,
-  error,
   onFile,
   onRemoveFile,
   onTextChange,
@@ -103,14 +101,12 @@ export default function JobDescriptionInput({
         maxLength={MAX_JOB_DESCRIPTION_CHARS}
         showCount
         aria-label="Job description text"
-        status={error || textIsShort ? 'error' : undefined}
       />
       <div className="job-description-meta">
-        <Text type={error || textIsShort ? 'danger' : 'secondary'}>
-          {error ||
-            (textIsShort
-              ? `Add ${MIN_JOB_DESCRIPTION_WORDS - wordCount} more words to reach the ${MIN_JOB_DESCRIPTION_WORDS}-word minimum.`
-              : `Minimum ${MIN_JOB_DESCRIPTION_WORDS} words${jobText.trim() ? ` · ${wordCount} entered` : ''}.`)}
+        <Text type="secondary">
+          {textIsShort
+            ? `Add ${MIN_JOB_DESCRIPTION_WORDS - wordCount} more words to reach the ${MIN_JOB_DESCRIPTION_WORDS}-word minimum.`
+            : `Minimum ${MIN_JOB_DESCRIPTION_WORDS} words${jobText.trim() ? ` · ${wordCount} entered` : ''}.`}
         </Text>
         <Text type="secondary">Avoid unnecessary personal information.</Text>
       </div>

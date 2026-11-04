@@ -1,8 +1,6 @@
-import { useState } from 'react';
 import type { ReactNode } from 'react';
 
 import AppHeader from '../components/layout/AppHeader';
-import WorkspaceSidebar from '../components/layout/WorkspaceSidebar';
 import type { AuthUser } from '../types/auth';
 import type { CompanyAccess } from '../types/organization';
 
@@ -33,8 +31,6 @@ export default function WorkspaceShell({
   onSignOut,
   children,
 }: WorkspaceShellProps) {
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-
   return (
     <div className="app-shell">
       {notificationHolder}
@@ -46,16 +42,10 @@ export default function WorkspaceShell({
         onCompanyCreated={onCompanyCreated}
         onCompanyArchived={onCompanyArchived}
         onCompanyRestored={onCompanyRestored}
+        onShowScreenings={onShowScreenings}
         onSignOut={onSignOut}
       />
-      <div className="workspace-body">
-        <WorkspaceSidebar
-          collapsed={sidebarCollapsed}
-          onToggle={() => setSidebarCollapsed((collapsed) => !collapsed)}
-          onShowScreenings={onShowScreenings}
-        />
-        <div className="workspace-content">{children}</div>
-      </div>
+      <div className="workspace-content">{children}</div>
     </div>
   );
 }

@@ -15,7 +15,7 @@ export function getWordCount(value = ''): number {
   return value.match(/[\p{L}\p{N}]+(?:['-][\p{L}\p{N}]+)*/gu)?.length ?? 0;
 }
 
-export function validateFile(
+function validateFile(
   file: { name: string; size?: number } | null | undefined,
   allowedExtensions: readonly string[],
   label: string,

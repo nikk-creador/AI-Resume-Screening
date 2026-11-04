@@ -52,8 +52,6 @@ def _evidence_quote(source_text: str, skill: str) -> str | None:
     match = re.search(re.escape(skill), source_text, flags=re.IGNORECASE)
     if not match:
         return None
-    # Keep a compact exact span so the complete resume, prompt, and target fit
-    # the training context without dropping other labeled skills.
     start = max(0, match.start() - 24)
     end = min(len(source_text), match.end() + 24)
     quote = source_text[start:end].strip()
@@ -71,8 +69,6 @@ def convert_row(row: dict) -> dict | None:
     if len(source_text) < 20:
         return None
 
-    # Keep only job-related skill evidence. Names, contact details, demographics,
-    # salary, location, and other personal fields are intentionally discarded.
     evidence = []
     for raw_skill in _skill_values(ground_truth.get("skills")):
         skill = _skill_name(raw_skill)

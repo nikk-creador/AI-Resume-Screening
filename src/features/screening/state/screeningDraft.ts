@@ -6,7 +6,7 @@ import type {
   ScreeningState,
 } from '../../../types/screening';
 
-export interface ScreeningDraftState {
+interface ScreeningDraftState {
   initialized: boolean;
   screeningId: string | null;
   resumes: ResumeRow[];
@@ -19,7 +19,7 @@ export interface ScreeningDraftState {
   archivedAt: ScreeningState['archivedAt'];
 }
 
-export type ScreeningDraftAction =
+type ScreeningDraftAction =
   | { type: 'hydrate'; screening: ScreeningState; pendingResumes: ResumeRow[] }
   | { type: 'initialize'; value: string | null }
   | { type: 'reset' }

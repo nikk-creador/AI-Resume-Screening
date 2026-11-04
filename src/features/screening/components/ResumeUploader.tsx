@@ -51,21 +51,7 @@ export default function ResumeUploader({ disabled, onBeforeUpload, resumes }: Re
           file
         </Text>
       </Dragger>
-      {visibleResumes.length > 0 && (
-        <div className="resume-uploaded-list" aria-label="Files added to this screening">
-          {visibleResumes.map((resume) => (
-            <div className="resume-uploaded-list-item" key={resume.key}>
-              <Text ellipsis={{ tooltip: resume.name }}>{resume.name}</Text>
-              <Text type="secondary">{formatFileSize(resume.size)}</Text>
-            </div>
-          ))}
-          {remainingResumeCount > 0 && (
-            <Text type="secondary">
-              and {remainingResumeCount} more; see candidate results below.
-            </Text>
-          )}
-        </div>
-      )}
+
       <div className="privacy-note">
         <span className="privacy-dot" /> Files are sent to the workspace when you save this
         screening. Each file shows its parsing and evaluation status and can be retried on its own

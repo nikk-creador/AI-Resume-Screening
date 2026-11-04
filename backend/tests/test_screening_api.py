@@ -20,6 +20,7 @@ from backend.app.main import (
     delete_screening,
     get_screening,
     list_screenings,
+    review_resume_relevance,
     review_resume_score,
     retry_screening,
     stop_screening,
@@ -28,6 +29,7 @@ from backend.app.main import (
     upload_screening_resumes,
     UpdateScreeningRequest,
     ReviewOverrideRequest,
+    RelevanceLabelRequest,
 )
 from backend.app.models import Resume, ResumeEvaluation, Screening, ScreeningRubric
 
@@ -71,6 +73,50 @@ class ScreeningApiTests(unittest.TestCase):
                     db=session, user=SimpleNamespace(id="other-user"),
                 )
             self.assertEqual(error.exception.status_code, 404)
+
+    def test_recruiter_relevance_is_saved_and_cleared_separately(self):
+        with Session(self.engine) as session:
+            screening = Screening(
+                id="relevance-screening",
+                owner_id=self.user.id,
+                job_description_text="Role",
+            )
+            resume = Resume(
+                id="relevance-resume",
+                filename="candidate.docx",
+                size_bytes=10,
+                storage_name="relevance.docx",
+                evaluation=ResumeEvaluation(status="completed", score=72),
+            )
+            screening.resumes.append(resume)
+            session.add(screening)
+            session.commit()
+
+            result = review_resume_relevance(
+                resume.id,
+                RelevanceLabelRequest(relevance=3),
+                db=session,
+                user=self.user,
+            )
+            self.assertEqual(result["relevance"], 3)
+            self.assertEqual(resume.evaluation.relevance_reviewer_id, self.user.id)
+            self.assertIsNotNone(resume.evaluation.relevance_updated_at)
+            screening_result = get_screening(screening.id, db=session, user=self.user)
+            self.assertEqual(screening_result["ranking_metrics"]["precision"], 1)
+            self.assertEqual(screening_result["ranking_metrics"]["recall"], 1)
+            self.assertEqual(screening_result["ranking_metrics"]["ndcg"], 1)
+
+            cleared = review_resume_relevance(
+                resume.id,
+                RelevanceLabelRequest(relevance=None),
+                db=session,
+                user=self.user,
+            )
+            self.assertIsNone(cleared["relevance"])
+            self.assertIsNone(resume.evaluation.relevance_reviewer_id)
+            screening_result = get_screening(screening.id, db=session, user=self.user)
+            self.assertEqual(screening_result["ranking_metrics"]["unlabeled_count"], 1)
+            self.assertIsNone(screening_result["ranking_metrics"]["precision"])
 
     def test_criteria_and_resume_batches_are_persisted_and_owner_scoped(self):
         criteria = [

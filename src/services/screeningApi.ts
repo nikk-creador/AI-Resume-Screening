@@ -1,14 +1,12 @@
 import { apiRequest as request } from './api/client';
 import type {
-  EvaluationCriterion,
   CandidatePipelineStage,
+  EvaluationCriterion,
   RetryMode,
   ScreeningApiRecord,
   ScreeningCreateInput,
   ScreeningListResponse,
 } from '../types/screening';
-
-export { getErrorMessage } from '../utils/errors';
 
 export async function suggestScreeningCriteria(
   jobDescriptionText: string,
@@ -48,6 +46,16 @@ export function reviewResumeScore(
   return request(`/api/resumes/${encodeURIComponent(resumeId)}/review`, {
     method: 'PATCH',
     body: JSON.stringify({ score, note }),
+  });
+}
+
+export function reviewResumeRelevance(
+  resumeId: string,
+  relevance: number | null,
+): Promise<{ resume_id: string; relevance: number | null; relevance_updated_at: string | null }> {
+  return request(`/api/resumes/${encodeURIComponent(resumeId)}/relevance`, {
+    method: 'PATCH',
+    body: JSON.stringify({ relevance }),
   });
 }
 

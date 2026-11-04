@@ -21,11 +21,13 @@ export default defineConfig(({ command, mode }) => {
 
   return {
     plugins: [react()],
-    // Demo credentials are only exposed to the local development server when demo seeding is enabled.
     define: { __DEMO_LOGIN__: JSON.stringify(demoLogin) },
     server: {
       host: '127.0.0.1',
       port: 5173,
+      proxy: {
+        '/api': 'http://127.0.0.1:8000',
+      },
     },
   };
 });

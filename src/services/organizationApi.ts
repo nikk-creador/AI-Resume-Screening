@@ -10,7 +10,7 @@ import type {
   OrganizationCompany,
 } from '../types/organization';
 
-export type CompanyRetentionPolicyInput = Pick<
+type CompanyRetentionPolicyInput = Pick<
   CompanyRetentionPolicy,
   'enabled' | 'resume_after_days' | 'resume_action' | 'screening_after_days' | 'screening_action'
 >;
@@ -31,21 +31,21 @@ export async function updateCompanyRetentionPolicy(
   });
 }
 
-export interface OrganizationCreateResult {
+interface OrganizationCreateResult {
   organization_id: string;
   organization_name: string;
   company_id: string;
   company_name: string;
 }
 
-export interface CompanyCreateResult {
+interface CompanyCreateResult {
   id: string;
   name: string;
   organization_id: string;
   parent_company_id: string | null;
 }
 
-export interface InvitationCreateResult {
+interface InvitationCreateResult {
   invitation: CompanyInvitation;
   action_url: string | null;
 }

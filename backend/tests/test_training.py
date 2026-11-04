@@ -46,7 +46,6 @@ class FineTuningDataTests(unittest.TestCase):
                 load_training_examples(dataset, minimum_examples=2)
 
     def test_extraction_report_measures_schema_and_evidence_support(self):
-        # Cover valid output, unsupported evidence, malformed JSON, and invalid schema.
         resume_example = TrainingExample.model_validate(self.make_example())
         job_description_example = TrainingExample.model_validate({
             "reviewed": True,

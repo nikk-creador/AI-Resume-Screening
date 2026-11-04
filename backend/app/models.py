@@ -53,7 +53,9 @@ class Resume(Base):
     )
     duplicate_of_filename: Mapped[str | None] = mapped_column(String(255), nullable=True)
     duplicate_reason: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    resume_embedding: Mapped[list[float] | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+
     screening: Mapped[Screening] = relationship(back_populates="resumes")
     evaluation: Mapped["ResumeEvaluation | None"] = relationship(
         back_populates="resume", cascade="all, delete-orphan", uselist=False
@@ -135,6 +137,9 @@ class ResumeEvaluation(Base):
     reviewer_override_note: Mapped[str | None] = mapped_column(Text, nullable=True)
     reviewer_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     reviewer_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    reviewer_relevance: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    relevance_reviewer_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    relevance_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     error_message: Mapped[str | None] = mapped_column(String(500), nullable=True)
     attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     available_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

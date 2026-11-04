@@ -55,6 +55,7 @@ function localResume(file: File): ResumeRow {
     duplicateOfResumeId: null,
     duplicateOfFilename: null,
     duplicateReason: null,
+    structuredProfile: null,
     archivedAt: null,
     evaluation: null,
   };
@@ -78,6 +79,7 @@ function normalizeScreening(data: ScreeningApiRecord): ScreeningState {
       duplicateOfResumeId: resume.duplicate_of_resume_id,
       duplicateOfFilename: resume.duplicate_of_filename,
       duplicateReason: resume.duplicate_reason,
+      structuredProfile: resume.structured_profile,
       archivedAt: resume.archived_at,
       evaluation: resume.evaluation,
     })),
@@ -140,9 +142,6 @@ export default function WorkspaceLayout({
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
-  const [uploadError, setUploadError] = useState('');
-  const [jobError, setJobError] = useState('');
-  const [pageError, setPageError] = useState('');
   const [messageApi, contextHolder] = message.useMessage();
   const clearCompanyWorkspace = () => {
     queryClient.removeQueries({ queryKey: queryKeys.screenings.root });
@@ -265,7 +264,7 @@ export default function WorkspaceLayout({
       queryClient.removeQueries({ queryKey: queryKeys.screenings.root });
       window.localStorage.removeItem(SCREENING_STORAGE_KEY);
       dispatchDraft({ type: 'reset' });
-      setPageError('Your access to this company changed. Switch to another available company.');
+      messageApi.error('Your access to this company changed. Switch to another available company.');
     };
     const handleCompanyViewDenied = (event: Event) => {
       const deniedCompanyId = (event as CustomEvent<string | null>).detail;
@@ -273,7 +272,9 @@ export default function WorkspaceLayout({
       queryClient.removeQueries({ queryKey: queryKeys.screenings.root });
       window.localStorage.removeItem(SCREENING_STORAGE_KEY);
       dispatchDraft({ type: 'reset' });
-      setPageError('Your screening view permission was removed. Contact a company administrator.');
+      messageApi.error(
+        'Your screening view permission was removed. Contact a company administrator.',
+      );
     };
     window.addEventListener('recruitai:company-access-denied', handleCompanyAccessDenied);
     window.addEventListener('recruitai:company-view-access-denied', handleCompanyViewDenied);
@@ -281,7 +282,7 @@ export default function WorkspaceLayout({
       window.removeEventListener('recruitai:company-access-denied', handleCompanyAccessDenied);
       window.removeEventListener('recruitai:company-view-access-denied', handleCompanyViewDenied);
     };
-  }, [activeCompanyId, queryClient]);
+  }, [activeCompanyId, messageApi, queryClient]);
   useEffect(() => {
     syncSavedScreening(screeningQuery.data, screeningQuery.error, screeningQuery.isPending);
   }, [screeningId, screeningQuery.data, screeningQuery.error, screeningQuery.isPending]);
@@ -289,13 +290,11 @@ export default function WorkspaceLayout({
   const addResume = (file: File): typeof Upload.LIST_IGNORE => {
     const error = validateResume(file, resumesRef.current);
     if (error) {
-      setUploadError(error);
+      messageApi.error(error);
       return Upload.LIST_IGNORE;
     }
     const next = [...resumesRef.current, localResume(file)];
     updateResumes(next);
-    setUploadError('');
-    setPageError('');
     setSelectedKeys([]);
     return Upload.LIST_IGNORE;
   };
@@ -304,29 +303,27 @@ export default function WorkspaceLayout({
     const allowed: readonly string[] = JOB_DESCRIPTION_EXTENSIONS;
     const extension = getExtension(file.name);
     if (!allowed.includes(extension)) {
-      setJobError('Choose a PDF, DOCX, or TXT job description.');
+      messageApi.error('Choose a PDF, DOCX, or TXT job description.');
       return Upload.LIST_IGNORE;
     }
     if (file.size === 0) {
-      setJobError('This job description file is empty.');
+      messageApi.error('This job description file is empty.');
       return Upload.LIST_IGNORE;
     }
     if (file.size > MAX_FILE_SIZE_BYTES) {
-      setJobError('The maximum job description file size is 10 MB.');
+      messageApi.error('The maximum job description file size is 10 MB.');
       return Upload.LIST_IGNORE;
     }
     setJobFile(file);
-    setJobError('');
-    setPageError('');
     if (extension === 'txt') {
       try {
         const text = await file.text();
         setJobText(text);
         const validationError = validateJobDescription(text, file);
-        setJobError(validationError);
+        if (validationError) messageApi.error(validationError);
       } catch {
         setJobText('');
-        setJobError('Could not read this text file. Try pasting the job description instead.');
+        messageApi.error('Could not read this text file. Try pasting the job description instead.');
       }
     } else {
       setJobText('');
@@ -335,23 +332,23 @@ export default function WorkspaceLayout({
   };
 
   const saveScreening = async () => {
-    setPageError('');
-    setUploadError('');
     const descriptionError = validateJobDescription(jobText, jobFile);
-    setJobError(descriptionError);
+    if (descriptionError) {
+      messageApi.error(descriptionError);
+      return;
+    }
     if (resumes.length === 0) {
-      setPageError('Add at least one resume before saving this screening.');
+      messageApi.error('Add at least one resume before saving this screening.');
       return;
     }
     if (screeningName.trim().length < 2) {
-      setPageError('Enter a screening name with at least two characters.');
+      messageApi.error('Enter a screening name with at least two characters.');
       return;
     }
     if (criteria.some((criterion) => criterion.name.trim().length < 2)) {
-      setPageError('Add a name of at least two characters for each preferred qualification.');
+      messageApi.error('Add a name of at least two characters for each preferred qualification.');
       return;
     }
-    if (descriptionError) return;
 
     setSaving(true);
     try {
@@ -401,7 +398,7 @@ export default function WorkspaceLayout({
       setSelectedKeys([]);
       messageApi.success('Resumes queued for local evaluation.');
     } catch (error: unknown) {
-      setPageError(
+      messageApi.error(
         getErrorMessage(
           error,
           'Could not upload the full batch. Saved resumes are retained; retry to continue.',
@@ -414,9 +411,10 @@ export default function WorkspaceLayout({
 
   const suggestCriteria = async () => {
     const descriptionError = validateJobDescription(jobText, jobFile);
-    setJobError(descriptionError);
-    if (descriptionError) return;
-    setPageError('');
+    if (descriptionError) {
+      messageApi.error(descriptionError);
+      return;
+    }
     setSuggestingCriteria(true);
     try {
       setCriteria(
@@ -426,7 +424,7 @@ export default function WorkspaceLayout({
         }),
       );
     } catch (error: unknown) {
-      setPageError(
+      messageApi.error(
         getErrorMessage(error, 'Could not suggest criteria. Add them manually and try again.'),
       );
     } finally {
@@ -437,7 +435,6 @@ export default function WorkspaceLayout({
   const retryScreening = async (mode: RetryMode) => {
     if (!screeningId) return;
     setRetryingMode(mode);
-    setPageError('');
     try {
       const result = await screeningActions.retry({ screeningId, mode });
       const saved = normalizeScreening(await fetchScreening(screeningId));
@@ -448,7 +445,7 @@ export default function WorkspaceLayout({
           : `${result.queued_count} ${result.queued_count === 1 ? 'resume' : 'resumes'} queued for evaluation.`,
       );
     } catch (error: unknown) {
-      setPageError(getErrorMessage(error, 'Could not retry this screening.'));
+      messageApi.error(getErrorMessage(error, 'Could not retry this screening.'));
     } finally {
       setRetryingMode(null);
     }
@@ -457,7 +454,6 @@ export default function WorkspaceLayout({
   const stopCurrentScreening = async () => {
     if (!screeningId) return;
     setStopping(true);
-    setPageError('');
     try {
       const result = await screeningActions.stop(screeningId);
       const saved = normalizeScreening(await fetchScreening(screeningId));
@@ -479,7 +475,6 @@ export default function WorkspaceLayout({
     if (!targets.length) return;
     const storedIds = targets.map((resume) => resume.id).filter((id): id is string => id !== null);
     setDeleting(true);
-    setPageError('');
     try {
       if (storedIds.length) {
         await screeningActions.deleteResumes({ screeningId, resumeIds: storedIds });
@@ -493,7 +488,7 @@ export default function WorkspaceLayout({
         targets.length === 1 ? 'Resume removed.' : `${targets.length} resumes removed.`,
       );
     } catch (error: unknown) {
-      setPageError(getErrorMessage(error, 'Could not remove the selected resumes. Try again.'));
+      messageApi.error(getErrorMessage(error, 'Could not remove the selected resumes. Try again.'));
     } finally {
       setDeleting(false);
     }
@@ -507,9 +502,6 @@ export default function WorkspaceLayout({
     setQuery('');
     setPage(1);
     setSelectedKeys([]);
-    setPageError('');
-    setJobError('');
-    setUploadError('');
   }
 
   const handleScreeningDeleted = (deletedScreeningId: string) => {
@@ -527,7 +519,6 @@ export default function WorkspaceLayout({
       return false;
     }
     setOpeningScreening(true);
-    setPageError('');
     try {
       const saved = normalizeScreening(await fetchScreening(id));
       setScreeningId(saved.id);
@@ -564,16 +555,18 @@ export default function WorkspaceLayout({
     !(screeningQuery.error instanceof ApiError && screeningQuery.error.status === 404)
       ? getErrorMessage(screeningQuery.error, 'Could not load or refresh the saved screening.')
       : '';
+  useEffect(() => {
+    if (screeningLoadError) messageApi.error(screeningLoadError);
+  }, [messageApi, screeningLoadError]);
+  useEffect(() => {
+    if (!activeCompany) {
+      messageApi.error(
+        'No company workspace is available for this account. Contact an organization administrator.',
+      );
+    }
+  }, [activeCompany, messageApi]);
   if (!activeCompany) {
-    return (
-      <main className="main-content">
-        <Alert
-          type="error"
-          showIcon
-          title="No company workspace is available for this account. Contact an organization administrator."
-        />
-      </main>
-    );
+    return <main className="main-content">{contextHolder}</main>;
   }
   return (
     <WorkspaceShell
@@ -639,20 +632,6 @@ export default function WorkspaceLayout({
                 }}
               />
 
-              {(pageError || screeningLoadError) && (
-                <Alert
-                  className="page-error"
-                  type="error"
-                  showIcon
-                  title={pageError || screeningLoadError}
-                  closable={{
-                    onClose: () => {
-                      setPageError('');
-                    },
-                  }}
-                />
-              )}
-
               {archivedAt && (
                 <Alert
                   className="service-notice"
@@ -677,28 +656,20 @@ export default function WorkspaceLayout({
                     onBeforeUpload={addResume}
                     resumes={resumes}
                   />
-                  {uploadError && (
-                    <Text className="validation-error" type="danger">
-                      {uploadError}
-                    </Text>
-                  )}
                 </Col>
                 <Col xs={24} lg={10}>
                   <JobDescriptionInput
                     disabled={!activeCompany.permissions.edit || loading || Boolean(screeningId)}
                     jobFile={jobFile}
                     jobText={jobText}
-                    error={jobError}
                     onFile={addJobFile}
                     onRemoveFile={() => {
                       setJobFile(null);
                       setJobText('');
-                      setJobError('');
                     }}
                     onTextChange={(value) => {
                       setJobText(value);
                       if (value.trim()) setJobFile(null);
-                      setJobError('');
                     }}
                     screeningId={screeningId}
                     canDownload={activeCompany.permissions.download}
@@ -776,6 +747,25 @@ export default function WorkspaceLayout({
                     throw error;
                   }
                 }}
+                rankingMetrics={screeningQuery.data?.ranking_metrics ?? null}
+                onRelevanceChange={async (resumeId, relevance) => {
+                  if (!screeningId) return;
+                  try {
+                    await screeningActions.reviewRelevance({ resumeId, relevance, screeningId });
+                    const saved = normalizeScreening(await fetchScreening(screeningId));
+                    updateResumes(saved.resumes);
+                    messageApi.success(
+                      relevance === null
+                        ? 'Recruiter relevance rating cleared.'
+                        : 'Recruiter relevance rating saved.',
+                    );
+                  } catch (error: unknown) {
+                    messageApi.error(
+                      getErrorMessage(error, 'Could not save the relevance rating.'),
+                    );
+                    throw error;
+                  }
+                }}
               />
               <footer className="page-footer">
                 AI output supports recruiter review. Final hiring decisions remain with people.
@@ -787,16 +777,7 @@ export default function WorkspaceLayout({
         <Route
           path={routes.screenings.slice(1)}
           element={
-            <main id="main" className="main-content">
-              <div className="page-heading">
-                <div>
-                  <Text className="eyebrow">AI-ASSISTED HIRING</Text>
-                  <Title level={1}>Screening history</Title>
-                  <Paragraph className="page-description">
-                    Reopen a screening to review its candidate rankings and evidence.
-                  </Paragraph>
-                </div>
-              </div>
+            <main id="main" className="main-content screenings-page">
               <ScreeningsList
                 onOpen={openScreeningInList}
                 onNewScreening={handleNewScreening}

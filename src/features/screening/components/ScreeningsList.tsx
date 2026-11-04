@@ -1,6 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
-  Alert,
   Button,
   Empty,
   Input,
@@ -44,7 +43,6 @@ export default function ScreeningsList({
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [searchInput, setSearchInput] = useState('');
-  const [error, setError] = useState('');
   const [editingScreening, setEditingScreening] = useState<ScreeningApiRecord | null>(null);
   const [editingName, setEditingName] = useState('');
   const [editingJobDescription, setEditingJobDescription] = useState('');
@@ -58,10 +56,14 @@ export default function ScreeningsList({
     data,
     isFetching: loading,
     error: listError,
+    refetch: refetchScreenings,
   } = useScreenings((page - 1) * PAGE_SIZE, PAGE_SIZE, search);
   const { duplicateMutation, updateMutation, deleteMutation } = useScreeningMutations();
   const items = data?.screenings ?? [];
   const total = data?.total ?? 0;
+  useEffect(() => {
+    if (listError) messageApi.error(getErrorMessage(listError, 'Could not load screenings.'));
+  }, [listError, messageApi]);
 
   const openEditor = async (screeningId: string) => {
     setLoadingEditId(screeningId);
@@ -73,9 +75,8 @@ export default function ScreeningsList({
       setEditingScreening(screening);
       setEditingName(screening.name);
       setEditingJobDescription(screening.job_description_text);
-      setError('');
     } catch (cause: unknown) {
-      setError(getErrorMessage(cause, 'Could not load this screening for editing.'));
+      messageApi.error(getErrorMessage(cause, 'Could not load this screening for editing.'));
     } finally {
       setLoadingEditId(null);
     }
@@ -94,9 +95,8 @@ export default function ScreeningsList({
         },
       });
       setEditingScreening(null);
-      setError('');
     } catch (cause: unknown) {
-      setError(getErrorMessage(cause, 'Could not update this screening.'));
+      messageApi.error(getErrorMessage(cause, 'Could not update this screening.'));
     } finally {
       setSavingEdit(false);
     }
@@ -111,10 +111,9 @@ export default function ScreeningsList({
       });
       await duplicateMutation.mutateAsync(screening);
       setPage(1);
-      setError('');
       messageApi.success('Screening duplicated. Upload candidates to start a new screening.');
     } catch (cause: unknown) {
-      setError(getErrorMessage(cause, 'Could not duplicate this screening.'));
+      messageApi.error(getErrorMessage(cause, 'Could not duplicate this screening.'));
     } finally {
       setDuplicatingId(null);
     }
@@ -126,9 +125,8 @@ export default function ScreeningsList({
       await deleteMutation.mutateAsync(screeningId);
       onDeleted(screeningId);
       if (items.length === 1 && page > 1) setPage((current) => current - 1);
-      setError('');
     } catch (cause: unknown) {
-      setError(getErrorMessage(cause, 'Could not delete this screening.'));
+      messageApi.error(getErrorMessage(cause, 'Could not delete this screening.'));
     } finally {
       setDeletingId(null);
     }
@@ -269,7 +267,9 @@ export default function ScreeningsList({
         <div>
           <Text className="eyebrow">SCREENING HISTORY</Text>
           <Title level={3}>All screenings</Title>
-          <Text type="secondary">Browse candidate rankings from previous roles.</Text>
+          <Text type="secondary">
+            Reopen a screening to review its candidate rankings and evidence.
+          </Text>
         </div>
         {canEdit && (
           <Button type="primary" onClick={onNewScreening}>
@@ -278,13 +278,10 @@ export default function ScreeningsList({
         )}
       </div>
 
-      {(error || listError) && (
-        <Alert
-          className="page-error"
-          type="error"
-          showIcon
-          title={error || getErrorMessage(listError, 'Could not load screenings.')}
-        />
+      {listError && (
+        <Button type="link" onClick={() => void refetchScreenings()}>
+          Retry loading screenings
+        </Button>
       )}
 
       <div className="screenings-list-toolbar">
@@ -311,46 +308,48 @@ export default function ScreeningsList({
         />
       </div>
 
-      <Table
-        className="screenings-table"
-        rowKey="id"
-        columns={columns}
-        dataSource={items}
-        loading={loading}
-        onRow={(screening) => ({
-          className: `screening-row-clickable${screening.archived_at ? ' screening-row-archived' : ''}`,
-          tabIndex: 0,
-          onClick: () => onOpen(screening.id),
-          onKeyDown: (event) => {
-            if (event.key === 'Enter' || event.key === ' ') {
-              event.preventDefault();
-              onOpen(screening.id);
-            }
-          },
-        })}
-        pagination={{
-          current: page,
-          pageSize: PAGE_SIZE,
-          total,
-          showSizeChanger: false,
-          onChange: (nextPage) => {
-            setPage(nextPage);
-          },
-        }}
-        locale={{
-          emptyText: (
-            <Empty
-              image={Empty.PRESENTED_IMAGE_SIMPLE}
-              description={search ? 'No screenings match this search.' : 'No screenings yet'}
-            >
-              {!search && canEdit && (
-                <Button onClick={onNewScreening}>Create your first screening</Button>
-              )}
-            </Empty>
-          ),
-        }}
-        scroll={{ x: 850 }}
-      />
+      <div className="screenings-list-content">
+        <Table
+          className="screenings-table"
+          rowKey="id"
+          columns={columns}
+          dataSource={items}
+          loading={loading}
+          onRow={(screening) => ({
+            className: `screening-row-clickable${screening.archived_at ? ' screening-row-archived' : ''}`,
+            tabIndex: 0,
+            onClick: () => onOpen(screening.id),
+            onKeyDown: (event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                onOpen(screening.id);
+              }
+            },
+          })}
+          pagination={{
+            current: page,
+            pageSize: PAGE_SIZE,
+            total,
+            showSizeChanger: false,
+            onChange: (nextPage) => {
+              setPage(nextPage);
+            },
+          }}
+          locale={{
+            emptyText: (
+              <Empty
+                image={Empty.PRESENTED_IMAGE_SIMPLE}
+                description={search ? 'No screenings match this search.' : 'No screenings yet'}
+              >
+                {!search && canEdit && (
+                  <Button onClick={onNewScreening}>Create your first screening</Button>
+                )}
+              </Empty>
+            ),
+          }}
+          scroll={{ x: 850, y: '100%' }}
+        />
+      </div>
       <Modal
         title="Edit screening"
         open={editingScreening !== null}

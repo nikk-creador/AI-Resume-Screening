@@ -42,6 +42,11 @@ class MatchingTests(unittest.TestCase):
             "backend.app.matching._cosine_score_matrix", return_value=[[0.9]]
         ), patch(
             "backend.app.matching._reranker_scores", return_value=[0.9]
+        ), patch(
+            "backend.app.matching._tfidf_cosine_score_matrix", return_value=[[0.0]]
+        ), patch(
+            "backend.app.matching.matching_tokens",
+            side_effect=lambda text: text.casefold().replace(".", " ").split(),
         ):
             result = score_requirements([requirement], profile, profile.evidence[0].evidence, MatchingWeights())
         item = result["assessments"][0]
@@ -53,8 +58,53 @@ class MatchingTests(unittest.TestCase):
         self.assertEqual(result["research_scores"]["hybrid_score"], result["score"])
         self.assertEqual(
             result["research_scores"]["component_weights"],
-            {"skill": 0.4, "semantic": 0.35, "experience": 0.15, "qualification": 0.1},
+            {
+                "skill": 0.4,
+                "semantic": 0.35,
+                "bm25": 0.15,
+                "experience": 0.15,
+                "qualification": 0.1,
+            },
         )
+
+    def test_bm25_prefers_exact_certification_keyword_over_related_semantics(self):
+        requirement = JobRequirement(
+            id="aws-cert", text="Must have AWS Certification",
+            normalized_concept="AWS certification", requirement_type="certification",
+            requirement_class="must_have", priority=5,
+            evidence_needed="Certification evidence", minimum_years=None,
+        )
+        evidence = [
+            ResumeEvidence(
+                normalized_concept="certification",
+                evidence="Earned AWS certification for cloud architecture.",
+                section="Certifications", source_type="certification",
+            ),
+            ResumeEvidence(
+                normalized_concept="certification",
+                evidence="Earned Azure certification for cloud architecture.",
+                section="Certifications", source_type="certification",
+            ),
+        ]
+        profile = StructuredResume(evidence=evidence)
+        with patch("backend.app.matching._precompute_passage_vectors", return_value=None), patch(
+            "backend.app.matching._cosine_score_matrix", return_value=[[0.9, 0.9]]
+        ), patch(
+            "backend.app.matching._tfidf_cosine_score_matrix",
+            return_value=[[0.0, 0.0]],
+        ), patch(
+            "backend.app.matching.matching_tokens",
+            side_effect=lambda text: text.casefold().replace(".", " ").split(),
+        ):
+            result = score_requirements(
+                [requirement],
+                profile,
+                " ".join(item.evidence for item in evidence),
+            )
+
+        assessment = result["assessments"][0]
+        self.assertEqual(assessment["evidence"], [evidence[0].evidence])
+        self.assertGreater(assessment["bm25_score"], 0)
 
     def test_course_evidence_does_not_satisfy_professional_years(self):
         requirement = JobRequirement(
@@ -67,7 +117,7 @@ class MatchingTests(unittest.TestCase):
             normalized_concept="react", evidence=quote, section="Projects", source_type="course",
         )])
         with patch("backend.app.matching._precompute_passage_vectors", return_value=None), patch(
-            "backend.app.matching._cosine_scores", return_value=[0.95]
+            "backend.app.matching._cosine_score_matrix", return_value=[[0.95]]
         ), patch(
             "backend.app.matching._reranker_scores", return_value=[0.95]
         ):
