@@ -145,6 +145,19 @@ class EvaluationTests(unittest.TestCase):
         self.assertIn("reviewer_relevance", {column["name"] for column in inspect(engine).get_columns("resume_evaluations")})
         engine.dispose()
 
+    def test_startup_migration_adds_resume_embedding_to_legacy_schema(self):
+        engine = create_engine("sqlite:///:memory:")
+        with engine.begin() as connection:
+            connection.exec_driver_sql(
+                "CREATE TABLE resumes (id VARCHAR(36) PRIMARY KEY)"
+            )
+
+        migrate_screening_schema(engine)
+
+        columns = {column["name"] for column in inspect(engine).get_columns("resumes")}
+        self.assertIn("resume_embedding", columns)
+        engine.dispose()
+
 
 if __name__ == "__main__":
     unittest.main()

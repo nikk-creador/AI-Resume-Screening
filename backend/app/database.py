@@ -58,6 +58,7 @@ def migrate_screening_schema(bind=engine) -> None:
             "duplicate_of_resume_id": String(36),
             "duplicate_of_filename": String(255),
             "duplicate_reason": String(80),
+            "resume_embedding": JSON(),
             "archived_at": DateTime(timezone=True),
         },
         "users": {"is_verified": Boolean(), "default_company_id": String(36)},
