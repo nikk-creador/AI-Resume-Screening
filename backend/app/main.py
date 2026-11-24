@@ -2269,6 +2269,13 @@ def update_screening(
             resume.evaluation.explanation = None
             resume.evaluation.assessments = None
             resume.evaluation.matching_details = None
+            resume.evaluation.reviewer_override_score = None
+            resume.evaluation.reviewer_override_note = None
+            resume.evaluation.reviewer_id = None
+            resume.evaluation.reviewer_updated_at = None
+            resume.evaluation.reviewer_relevance = None
+            resume.evaluation.relevance_reviewer_id = None
+            resume.evaluation.relevance_updated_at = None
             resume.evaluation.error_message = None
             resume.evaluation.attempts = 0
             resume.evaluation.available_at = None
