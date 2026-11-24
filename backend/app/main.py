@@ -91,6 +91,7 @@ from .retention import run_retention_worker
 
 MAX_FILE_SIZE = 10 * 1024 * 1024
 MAX_RESUMES_PER_ARCHIVE = 100
+MAX_EXPANDED_RESUMES_PER_BATCH = MAX_RESUMES_PER_ARCHIVE
 MAX_JOB_DESCRIPTION_CHARS = 10_000
 MIN_JOB_DESCRIPTION_WORDS = 20
 RESUME_EXTENSIONS = {".pdf", ".docx", ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".zip"}
@@ -660,6 +661,14 @@ async def store_resume_uploads(
                             raise HTTPException(
                                 status_code=400,
                                 detail=f"{filename}: encrypted files are not supported.",
+                            )
+                        if len(resume_files) >= MAX_EXPANDED_RESUMES_PER_BATCH:
+                            raise HTTPException(
+                                status_code=413,
+                                detail=(
+                                    "Upload no more than "
+                                    f"{MAX_EXPANDED_RESUMES_PER_BATCH} resumes per batch."
+                                ),
                             )
                         if entry.file_size > MAX_FILE_SIZE:
                             raise HTTPException(
