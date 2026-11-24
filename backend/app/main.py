@@ -2230,43 +2230,49 @@ def update_screening(
     previous_job_description = screening.job_description_text
     previous_criteria = screening.rubric.criteria if screening.rubric else []
     previous_requirements_count = len(screening.job_requirements or [])
+    name_changed = previous_name != screening_name
+    job_description_changed = previous_job_description != job_description
+    criteria_changed = previous_criteria != criteria
+    scoring_inputs_changed = job_description_changed or criteria_changed
     previous_job_file = (
         UPLOAD_DIR / screening.job_description_storage_name
-        if screening.job_description_storage_name
+        if job_description_changed and screening.job_description_storage_name
         else None
     )
 
     screening.name = screening_name
     screening.job_description_text = job_description
-    screening.job_requirements = None
-    screening.job_description_filename = None
-    screening.job_description_content_type = None
-    screening.job_description_storage_name = None
+    if job_description_changed:
+        screening.job_requirements = None
+        screening.job_description_filename = None
+        screening.job_description_content_type = None
+        screening.job_description_storage_name = None
     if screening.rubric is None:
         screening.rubric = ScreeningRubric(criteria=criteria)
     else:
         screening.rubric.criteria = criteria
 
     now = datetime.now(timezone.utc)
-    for resume in screening.resumes:
-        if resume.evaluation is None:
-            resume.evaluation = ResumeEvaluation(status="queued", updated_at=now)
-            continue
-        resume.evaluation.status = "queued"
-        resume.evaluation.score = None
-        resume.evaluation.job_match_score = None
-        resume.evaluation.preferred_score = None
-        resume.evaluation.bonus_points = None
-        resume.evaluation.required_checks_passed = None
-        resume.evaluation.required_checks = None
-        resume.evaluation.job_evidence = None
-        resume.evaluation.explanation = None
-        resume.evaluation.assessments = None
-        resume.evaluation.matching_details = None
-        resume.evaluation.error_message = None
-        resume.evaluation.attempts = 0
-        resume.evaluation.available_at = None
-        resume.evaluation.updated_at = now
+    if scoring_inputs_changed:
+        for resume in screening.resumes:
+            if resume.evaluation is None:
+                resume.evaluation = ResumeEvaluation(status="queued", updated_at=now)
+                continue
+            resume.evaluation.status = "queued"
+            resume.evaluation.score = None
+            resume.evaluation.job_match_score = None
+            resume.evaluation.preferred_score = None
+            resume.evaluation.bonus_points = None
+            resume.evaluation.required_checks_passed = None
+            resume.evaluation.required_checks = None
+            resume.evaluation.job_evidence = None
+            resume.evaluation.explanation = None
+            resume.evaluation.assessments = None
+            resume.evaluation.matching_details = None
+            resume.evaluation.error_message = None
+            resume.evaluation.attempts = 0
+            resume.evaluation.available_at = None
+            resume.evaluation.updated_at = now
 
     company = db.get(Company, screening.company_id) if screening.company_id else None
     if company is not None:
@@ -2274,13 +2280,13 @@ def update_screening(
             db, user=user, company=company, action="screening.updated",
             resource_type="screening", resource_id=screening.id,
             details={
-                "name_changed": previous_name != screening_name,
-                "job_description_changed": previous_job_description != job_description,
-                "criteria_changed": previous_criteria != criteria,
+                "name_changed": name_changed,
+                "job_description_changed": job_description_changed,
+                "criteria_changed": criteria_changed,
                 "previous_criteria": [item.get("name", "") for item in previous_criteria],
                 "criteria": [item.get("name", "") for item in criteria],
                 "previous_job_requirements_count": previous_requirements_count,
-                "job_requirements_reset": previous_requirements_count > 0,
+                "job_requirements_reset": job_description_changed and previous_requirements_count > 0,
             },
         )
     db.commit()
