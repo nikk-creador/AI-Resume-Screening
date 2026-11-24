@@ -436,19 +436,22 @@ def deliver_auth_action(
 @app.post("/api/auth/register", status_code=status.HTTP_201_CREATED, tags=["authentication"])
 def register_account(payload: RegisterRequest, db: Session = Depends(get_db)) -> dict[str, str | None]:
     email = normalize_email(payload.email)
-    if db.scalar(select(User).where(User.email == email)) is not None:
-        raise HTTPException(status_code=409, detail="An account with this email already exists.")
-
-    user = User(
-        id=str(uuid4()),
-        email=email,
-        full_name=payload.full_name.strip(),
-        password_hash=hash_password(payload.password),
-        is_verified=False,
-    )
-    db.add(user)
-    create_default_tenant(db, user)
-    db.commit()
+    existing_user = db.scalar(select(User).where(User.email == email))
+    if existing_user is not None:
+        if existing_user.is_verified or authenticate_user(db, email, payload.password) is None:
+            raise HTTPException(status_code=409, detail="An account with this email already exists.")
+        user = existing_user
+    else:
+        user = User(
+            id=str(uuid4()),
+            email=email,
+            full_name=payload.full_name.strip(),
+            password_hash=hash_password(payload.password),
+            is_verified=False,
+        )
+        db.add(user)
+        create_default_tenant(db, user)
+        db.commit()
     action_url = auth_action_url(
         "/verify-email", create_action_token(user, "email_verification")
     )
