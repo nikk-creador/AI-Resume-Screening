@@ -61,7 +61,12 @@ def hash_password(password: str) -> str:
 def create_session_token(user: User) -> str:
     now = datetime.now(timezone.utc)
     return jwt.encode(
-        {"sub": user.id, "iat": now, "exp": now + timedelta(seconds=SESSION_TTL_SECONDS)},
+        {
+            "sub": user.id,
+            "sv": user.session_version,
+            "iat": now,
+            "exp": now + timedelta(seconds=SESSION_TTL_SECONDS),
+        },
         AUTH_SECRET_KEY,
         algorithm="HS256",
     )
@@ -165,7 +170,11 @@ def get_current_user(
     except jwt.InvalidTokenError as error:
         raise unauthorized from error
     user = db.get(User, user_id)
-    if user is None or not user.is_active:
+    if (
+        user is None
+        or not user.is_active
+        or payload.get("sv", 0) != user.session_version
+    ):
         raise unauthorized
     return user
 
@@ -184,7 +193,13 @@ def get_optional_current_user(
     if not isinstance(user_id, str):
         return None
     user = db.get(User, user_id)
-    return user if user is not None and user.is_active else None
+    return (
+        user
+        if user is not None
+        and user.is_active
+        and payload.get("sv", 0) == user.session_version
+        else None
+    )
 
 
 def seed_demo_user(db: Session) -> None:

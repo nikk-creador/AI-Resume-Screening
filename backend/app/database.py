@@ -61,7 +61,11 @@ def migrate_screening_schema(bind=engine) -> None:
             "resume_embedding": JSON(),
             "archived_at": DateTime(timezone=True),
         },
-        "users": {"is_verified": Boolean(), "default_company_id": String(36)},
+        "users": {
+            "is_verified": Boolean(),
+            "default_company_id": String(36),
+            "session_version": Integer(),
+        },
         "organizations": {"is_active": Boolean(), "created_at": DateTime(timezone=True)},
         "companies": {
             "organization_id": String(36),
@@ -140,6 +144,14 @@ def migrate_screening_schema(bind=engine) -> None:
                 if table_name == "users" and column_name == "is_verified":
                     connection.execute(
                         text("ALTER TABLE users ADD COLUMN is_verified BOOLEAN NOT NULL DEFAULT TRUE")
+                    )
+                    continue
+                if table_name == "users" and column_name == "session_version":
+                    connection.execute(
+                        text(
+                            "ALTER TABLE users ADD COLUMN session_version "
+                            "INTEGER NOT NULL DEFAULT 0"
+                        )
                     )
                     continue
                 if table_name == "resumes" and column_name == "pipeline_stage":

@@ -846,6 +846,7 @@ def reset_password(payload: ResetPasswordRequest, db: Session = Depends(get_db))
     ):
         raise HTTPException(status_code=400, detail="This link is invalid or expired.")
     user.password_hash = hash_password(payload.password)
+    user.session_version += 1
     db.commit()
     return {"message": "Password updated. You can now sign in."}
 
