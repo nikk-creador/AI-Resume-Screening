@@ -194,6 +194,32 @@ def process_next_evaluation(db: Session, upload_dir: Path = UPLOAD_DIR) -> bool:
     return True
 
 
+def backfill_next_completed_profile(db: Session, upload_dir: Path = UPLOAD_DIR) -> bool:
+    resume = db.scalar(
+        select(Resume)
+        .join(ResumeEvaluation)
+        .where(
+            ResumeEvaluation.status == "completed",
+            Resume.structured_profile.is_(None),
+        )
+        .order_by(Resume.created_at)
+        .limit(1)
+    )
+    if resume is None:
+        return False
+
+    try:
+        resume_text = extract_resume_text(
+            resume.filename,
+            (upload_dir / resume.storage_name).read_bytes(),
+        )
+        resume.structured_profile = extract_resume_profile(resume_text).model_dump()
+    except (OSError, ValueError):
+        resume.structured_profile = {"evidence": [], "education": [], "work_experience": []}
+    db.commit()
+    return True
+
+
 def _finish_failure(db: Session, resume_id: str, message: str) -> bool:
     db.execute(
         update(ResumeEvaluation)
@@ -229,6 +255,8 @@ def run_worker(
         try:
             with SessionLocal() as db:
                 processed = process_next_evaluation(db)
+                if not processed:
+                    processed = backfill_next_completed_profile(db)
         except Exception:
             logger.exception("Resume evaluation worker loop failed.")
             processed = False

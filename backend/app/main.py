@@ -53,13 +53,7 @@ from .database import (
     get_db,
     migrate_screening_schema,
 )
-from .evaluation import (
-    EvaluationCriterion,
-    extract_pdf_text,
-    extract_resume_sections,
-    extract_resume_text,
-    suggest_criteria,
-)
+from .evaluation import EvaluationCriterion, extract_pdf_text, suggest_criteria
 from .matching import JobRequirement, MatchingWeights, default_matching_weights
 from .models import (
     AuditLog,
@@ -509,29 +503,6 @@ def register_account(payload: RegisterRequest, db: Session = Depends(get_db)) ->
     }
 
 def screening_payload(screening: Screening, db: Session) -> dict:
-    profiles_updated = False
-    for resume in screening.resumes:
-        if resume.evaluation is None or resume.evaluation.status != "completed":
-            continue
-        profile_data = dict(resume.structured_profile or {})
-        if "education" in profile_data and "work_experience" in profile_data:
-            continue
-        try:
-            resume_text = extract_resume_text(
-                resume.filename,
-                (UPLOAD_DIR / resume.storage_name).read_bytes(),
-            )
-        except (OSError, ValueError):
-            continue
-        education, work_experience = extract_resume_sections(resume_text)
-        profile_data.setdefault("evidence", [])
-        if not profile_data.get("education"):
-            profile_data["education"] = education
-        if not profile_data.get("work_experience"):
-            profile_data["work_experience"] = work_experience
-        resume.structured_profile = profile_data
-        profiles_updated = True
-
     completed_evaluations = [
         resume.evaluation
         for resume in screening.resumes
@@ -601,8 +572,6 @@ def screening_payload(screening: Screening, db: Session) -> dict:
             for resume in screening.resumes
             ],
             }
-    if profiles_updated:
-        db.commit()
     return payload
 
 
