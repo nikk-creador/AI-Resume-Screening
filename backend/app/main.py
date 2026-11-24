@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+from collections import deque
 from datetime import datetime, timezone
 import hashlib
 import hmac
@@ -10,7 +11,8 @@ from pathlib import Path
 from pathlib import PurePosixPath
 import re
 import secrets
-from threading import Event, Thread
+from threading import Event, Lock, Thread
+from time import monotonic
 from typing import Any, Literal
 from uuid import uuid4
 from urllib.parse import quote
@@ -19,9 +21,9 @@ from zipfile import BadZipFile, ZipFile
 from google.auth.exceptions import GoogleAuthError
 import jwt
 from docx import Document
-from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Response, UploadFile, status
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request, Response, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy import case, delete, func, select, text, update
 from sqlalchemy.orm import Session, selectinload
@@ -260,6 +262,50 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+AUTH_RATE_LIMITS = {
+    "/api/auth/login": (10, 60),
+    "/api/auth/register": (5, 3600),
+    "/api/auth/password-reset/request": (5, 3600),
+    "/api/auth/password-reset/complete": (10, 3600),
+    "/api/auth/verification/complete": (10, 3600),
+}
+_auth_rate_limit_lock = Lock()
+_auth_rate_limit_hits: dict[tuple[str, str], deque[float]] = {}
+
+
+@app.middleware("http")
+async def limit_auth_request_rates(request: Request, call_next):
+    limit = AUTH_RATE_LIMITS.get(request.url.path)
+    if request.method != "POST" or limit is None:
+        return await call_next(request)
+
+    max_requests, window_seconds = limit
+    client_host = request.client.host if request.client else "unknown"
+    key = (request.url.path, client_host)
+    now = monotonic()
+    with _auth_rate_limit_lock:
+        hits = _auth_rate_limit_hits.setdefault(key, deque())
+        while hits and now - hits[0] >= window_seconds:
+            hits.popleft()
+        if len(hits) >= max_requests:
+            retry_after = max(1, int(window_seconds - (now - hits[0])))
+            return JSONResponse(
+                status_code=429,
+                content={"detail": "Too many requests. Try again later."},
+                headers={"Retry-After": str(retry_after)},
+            )
+        hits.append(now)
+        if len(_auth_rate_limit_hits) > 10_000:
+            cutoff = now - max(window for _, window in AUTH_RATE_LIMITS.values())
+            for old_key, old_hits in list(_auth_rate_limit_hits.items()):
+                while old_hits and now - old_hits[0] >= max(
+                    window for _, window in AUTH_RATE_LIMITS.values()
+                ):
+                    old_hits.popleft()
+                if not old_hits or old_hits[-1] < cutoff:
+                    _auth_rate_limit_hits.pop(old_key, None)
+    return await call_next(request)
 
 
 def count_words(value: str) -> int:
