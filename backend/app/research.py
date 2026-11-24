@@ -341,7 +341,7 @@ def run_experiment(dataset_path: Path, dataset_version: str) -> dict:
         "production_matching_weights": weights.model_dump(),
         "hybrid_method": "production requirement-level exact/embedding/evidence matcher",
         "structured_extraction_requested": os.getenv("AI_EXTRACTION_ENABLED", "false").casefold() == "true"
-        and os.getenv("AI_PROVIDER", "ollama").strip().casefold() == "ollama",
+        and os.getenv("AI_PROVIDER", "openai_compatible").strip().casefold() == "ollama",
         "reranker_enabled": os.getenv("MATCH_ENABLE_RERANKER", "false").casefold() == "true",
         "reranker_model": os.getenv("MATCH_RERANKER_MODEL", "jinaai/jina-reranker-v2-base-multilingual"),
         "test_pair_count": len(test_pairs),

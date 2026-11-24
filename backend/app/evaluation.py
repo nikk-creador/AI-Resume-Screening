@@ -380,7 +380,7 @@ def _request_model(
     system_prompt: str,
 ) -> ModelT:
 
-    provider = os.getenv("AI_PROVIDER", "ollama").strip().casefold()
+    provider = os.getenv("AI_PROVIDER", "openai_compatible").strip().casefold()
     model_name = os.getenv("AI_MODEL", "").strip()
     if provider == "openai_compatible":
         base_url = os.getenv("AI_BASE_URL", "https://api.groq.com/openai/v1").rstrip("/")
